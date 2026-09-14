@@ -1,0 +1,14 @@
+{
+  "name": "mass-viz-server",
+  "version": "1.0.0",
+  "description": "Unified live/replay viewer server for MASS CUDA, MASS C++, and MASS Java simulation output.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "three": "^0.169.0",
+    "ws": "^8.18.0"
+  }
+}

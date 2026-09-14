@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <groupId>edu.uw.bothell.css.dsl.mass.apps</groupId>
+  <artifactId>java-grid-demo</artifactId>
+  <packaging>jar</packaging>
+  <version>1.0.0-SNAPSHOT</version>
+
+  <name>mass-viz Java grid-mode demo</name>
+  <description>
+    A small 2D Places grid (HeatCell) plus a few migrating Agents (Wanderer),
+    wired to mass-viz to exercise the grid renderer end-to-end. See ../../README.md.
+  </description>
+
+  <properties>
+    <maven.compiler.source>11</maven.compiler.source>
+    <maven.compiler.target>11</maven.compiler.target>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <exec.mainClass>edu.uw.bothell.css.dsl.mass.apps.vizdemo.grid.GridDemo</exec.mainClass>
+  </properties>
+
+  <dependencies>
+    <dependency>
+      <groupId>edu.uw.bothell.css.dsl.mass</groupId>
+      <artifactId>mass-core</artifactId>
+      <version>2.1.0-RELEASE</version>
+    </dependency>
+    <dependency>
+      <groupId>edu.uw.bothell.css.dsl.mass</groupId>
+      <artifactId>mass-viz-java</artifactId>
+      <version>1.0.0-SNAPSHOT</version>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <plugin>
+        <!--
+          Uses the "exec" goal (a real forked java process), not "java"
+          (which runs in Maven's own JVM): mass_java_core's messaging layer
+          (Aeron) needs several JVM module opens/exports flags below that
+          can only be set at JVM startup. Confirmed necessary by hitting
+          java.lang.reflect.InaccessibleObjectException on sun.nio.ch.
+          SelectorImpl without them. Run with: mvn exec:exec
+        -->
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>exec-maven-plugin</artifactId>
+        <version>3.1.0</version>
+        <configuration>
+          <executable>java</executable>
+          <arguments>
+            <argument>--add-modules</argument>
+            <argument>java.se</argument>
+            <argument>--add-exports</argument>
+            <argument>java.base/jdk.internal.ref=ALL-UNNAMED</argument>
+            <argument>--add-opens</argument>
+            <argument>java.base/java.lang=ALL-UNNAMED</argument>
+            <argument>--add-opens</argument>
+            <argument>java.base/java.nio=ALL-UNNAMED</argument>
+            <argument>--add-opens</argument>
+            <argument>java.base/sun.nio.ch=ALL-UNNAMED</argument>
+            <argument>--add-opens</argument>
+            <argument>java.management/sun.management=ALL-UNNAMED</argument>
+            <argument>--add-opens</argument>
+            <argument>jdk.management/com.sun.management.internal=ALL-UNNAMED</argument>
+            <argument>-cp</argument>
+            <classpath/>
+            <argument>${exec.mainClass}</argument>
+          </arguments>
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
+</project>

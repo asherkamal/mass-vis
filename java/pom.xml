@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <groupId>edu.uw.bothell.css.dsl.mass</groupId>
+  <artifactId>mass-viz-java</artifactId>
+  <packaging>jar</packaging>
+  <version>1.0.0-SNAPSHOT</version>
+
+  <name>MASS Java Visualization Adapter</name>
+  <description>
+    Feeds MASS Java Places/Agents simulation state to a mass-viz server (see
+    ../server) over the shared mass-viz protocol (see ../PROTOCOL.md), so
+    cluster MASS Java runs get the same live 2D grid + graph/agent-migration
+    viewer as MASS CUDA and MASS C++.
+  </description>
+
+  <properties>
+    <maven.compiler.source>11</maven.compiler.source>
+    <maven.compiler.target>11</maven.compiler.target>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+  </properties>
+
+  <dependencies>
+    <!--
+      mass-core is not published to a public repository. Build and install it
+      locally first:  mvn -f ../../mass_java_core/pom.xml install
+    -->
+    <dependency>
+      <groupId>edu.uw.bothell.css.dsl.mass</groupId>
+      <artifactId>mass-core</artifactId>
+      <version>2.1.0-RELEASE</version>
+    </dependency>
+    <dependency>
+      <groupId>com.google.code.gson</groupId>
+      <artifactId>gson</artifactId>
+      <version>2.8.6</version>
+    </dependency>
+  </dependencies>
+</project>
