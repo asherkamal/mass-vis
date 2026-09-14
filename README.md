@@ -41,17 +41,21 @@ renderer that handles both spatial grids and graphs.
   `cpp/README.md` for why).
 - **`cuda/`** - the MASS CUDA adapter. Grid mode only (CUDA core has no
   graph API); polls via `Places::downloadAttributes<T>()`.
-
-FLAME GPU2 integration is deferred - no FLAME GPU2 source is present in
-this workspace, and there's no NVIDIA GPU available to test it against. Per
-the project's own intent (FLAME GPU2 is used to benchmark MASS CUDA), the
-FLAME GPU2 adapter should mirror the CUDA adapter (`cuda/`) as closely as
-possible - same grid-mode-only NDJSON protocol, same polling-after-a-step
-shape - so a FLAME GPU2 run and a MASS CUDA run of a comparable model land
-in the same viewer, in the same visual language, for a fair side-by-side.
-The natural next step is a `pyflamegpu` host/step-function that emits that
-protocol, built once a CUDA machine is available to validate both sides
-against real runs.
+- **`flamegpu2/`** - the FLAME GPU2 (`pyflamegpu`) adapter. Grid mode only,
+  mirroring `cuda/` as closely as possible per the project's own intent
+  (FLAME GPU2 benchmarks MASS CUDA) - same grid-mode-only NDJSON protocol,
+  same poll-after-a-step shape, so a FLAME GPU2 run and a MASS CUDA run of a
+  comparable model land in the same viewer, in the same visual language,
+  for a fair side-by-side. Built via a FLAME GPU2 step function
+  (`pyflamegpu.HostFunction`) rather than a driver-loop call, since that's
+  FLAME GPU2's own per-tick host hook - see `flamegpu2/README.md` for why
+  that differs from `cuda/`'s shape and for the exact API citations. No
+  FLAME GPU2 source or GPU was available in this workspace, so - as
+  instructed - actually compiling/running it against a real `pyflamegpu`
+  install is deferred; it's written against API shapes confirmed directly
+  from FLAME GPU2's own headers/SWIG interface on GitHub, and verified
+  against a standalone fake-`pyflamegpu` smoke test (see
+  `flamegpu2/README.md`'s Status section).
 
 ## What's verified vs. not
 
@@ -72,6 +76,7 @@ for the C++ side (much cheaper - the adapter is self-contained, so no
 | `java/` adapter + examples | **Actually compiled and run**, not just signature-checked: `mass_java_core` and `mass-viz-java` both `mvn install` cleanly, and both example apps run end-to-end against a live `server/` instance producing correct events (verified by reading the recorded `.ndjson` back) - see `java/README.md`. |
 | `cpp/` adapter | **Actually compiled and run**: self-contained (no `mass_cpp_core` headers needed), so a standalone GCC (fetched via `winget`) was enough to compile it clean and run a synthetic sample through both grid and graph mode, verified against the live server via both file-replay and `POST /event` - caught and fixed one real comment-parsing bug. The `Place`/`Agent` subclass wiring itself is still unverified (real `mass_cpp_core` isn't buildable here) - see `cpp/README.md`. |
 | `cuda/` adapter | Written against confirmed API shape; needs `mass_cuda_core` headers + CUDA toolchain to even parse, so entirely unverified here. |
+| `flamegpu2/` adapter | Written against confirmed API shape (real FLAME GPU2 headers/SWIG interface, read from GitHub); syntax-checked (`python -m py_compile`) and run against a standalone fake-`pyflamegpu` smoke test - not run against a real `pyflamegpu` install or GPU (none available here). |
 
 ## Quick start
 
