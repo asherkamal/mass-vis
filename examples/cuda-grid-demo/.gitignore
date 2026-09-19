@@ -1,0 +1,4 @@
+# Build artifacts from ./compile.sh - see ../../cuda/README.md's "Build"
+# section for why this needs a two-phase nvcc -dlink + g++ host link.
+*.o
+cuda-grid-demo

@@ -1,0 +1,1 @@
+(empty - nProc=1 means MASS::init never reads this; see mass_cpp_core/source/MASS.cpp)

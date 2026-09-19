@@ -1,6 +1,8 @@
 #include "mass_viz.h"
 
 #include <chrono>
+#include <cmath>
+#include <iomanip>
 #include <sstream>
 
 namespace massviz {
@@ -21,8 +23,29 @@ std::string MassViz::escape(const std::string& s) {
     std::string out;
     out.reserve(s.size());
     for (char c : s) {
-        if (c == '"' || c == '\\') out += '\\';
-        out += c;
+        switch (c) {
+            case '"':  out += "\\\""; break;
+            case '\\': out += "\\\\"; break;
+            case '\b': out += "\\b"; break;
+            case '\f': out += "\\f"; break;
+            case '\n': out += "\\n"; break;
+            case '\r': out += "\\r"; break;
+            case '\t': out += "\\t"; break;
+            default:
+                // Any other control character is illegal raw inside a JSON
+                // string (RFC 8259), so the server logs and drops the whole
+                // event rather than the viewer ever seeing it. Emit a \u00XX
+                // escape instead. A tab or newline reaching here through a
+                // runName or a vertex id is entirely plausible.
+                if (static_cast<unsigned char>(c) < 0x20) {
+                    static const char* HEX = "0123456789abcdef";
+                    out += "\\u00";
+                    out += HEX[(static_cast<unsigned char>(c) >> 4) & 0xF];
+                    out += HEX[static_cast<unsigned char>(c) & 0xF];
+                } else {
+                    out += c;
+                }
+        }
     }
     return out;
 }
@@ -50,12 +73,38 @@ std::string MassViz::stringArrayToJson(const std::vector<std::string>& values) {
 }
 
 namespace {
+// JSON has no literal for NaN or Infinity: streaming one straight to an
+// ostream produces a bare `nan`/`inf` token, which is not valid JSON, so the
+// server logs and drops the *entire* event (handleIncomingEvent in
+// ../../server/server.js) and the viewer silently stops updating. A NaN is
+// entirely reachable in e.g. a diverging heat-diffusion model, so emit
+// `null` instead - which the renderers skip (see gridRenderer.js's
+// setPlace), leaving that cell at its last known color.
+//
+// Precision is also raised from ostream's default 6 significant digits to 9,
+// enough to round-trip a float exactly. Default (non-fixed) formatting still
+// drops trailing zeros, so ordinary values cost no extra bytes.
+void writeNumber(std::ostringstream& os, double value) {
+    if (!std::isfinite(value)) {
+        os << "null";
+        return;
+    }
+    os << value;
+}
+
+std::string numberToJson(double value) {
+    std::ostringstream os;
+    os << std::setprecision(9);
+    writeNumber(os, value);
+    return os.str();
+}
+
 std::string doubleArrayToJson(const std::vector<double>& values) {
     std::ostringstream os;
-    os << '[';
+    os << std::setprecision(9) << '[';
     for (size_t i = 0; i < values.size(); i++) {
         if (i) os << ',';
-        os << values[i];
+        writeNumber(os, values[i]);
     }
     os << ']';
     return os.str();
@@ -118,9 +167,21 @@ void MassViz::reportPlace(const std::vector<int>& index, double value) {
     if (!open_) return;
     std::ostringstream os;
     os << "{\"v\":1,\"runId\":\"" << escape(runId_) << "\",\"type\":\"place\",\"t\":" << nowMillis()
-       << ",\"index\":" << intArrayToJson(index) << ",\"value\":" << value << "}";
+       << ",\"index\":" << intArrayToJson(index) << ",\"value\":" << numberToJson(value) << "}";
     out_ << os.str() << '\n';
     out_.flush();
+}
+
+void MassViz::reportPlaces(const double* values, size_t numPlaces) {
+    std::ostringstream os;
+    os << std::setprecision(9) << "{\"v\":1,\"runId\":\"" << escape(runId_)
+       << "\",\"type\":\"place_grid\",\"t\":" << nowMillis() << ",\"values\":[";
+    for (size_t i = 0; i < numPlaces; i++) {
+        if (i) os << ',';
+        writeNumber(os, values[i]);
+    }
+    os << "]}";
+    writeLine(os.str());
 }
 
 void MassViz::reportVertex(const std::string& id, const std::string& name,
@@ -135,7 +196,7 @@ void MassViz::reportVertex(const std::string& id, const std::string& name,
 void MassViz::reportPlaceValue(const std::string& vertexId, double value) {
     std::ostringstream os;
     os << "{\"v\":1,\"runId\":\"" << escape(runId_) << "\",\"type\":\"place_value\",\"t\":" << nowMillis()
-       << ",\"id\":\"" << escape(vertexId) << "\",\"value\":" << value << "}";
+       << ",\"id\":\"" << escape(vertexId) << "\",\"value\":" << numberToJson(value) << "}";
     writeLine(os.str());
 }
 

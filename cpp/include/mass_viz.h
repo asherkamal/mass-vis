@@ -1,6 +1,7 @@
 #ifndef MASS_VIZ_H
 #define MASS_VIZ_H
 
+#include <cstddef>
 #include <string>
 #include <vector>
 #include <fstream>
@@ -61,6 +62,31 @@ public:
     // workload, so every existing caller following the documented pattern
     // gets the size reduction for free, with no code changes needed.
     void reportPlace(const std::vector<int>& index, double value);
+
+    // Grid mode, DRIVER-LOOP ALTERNATIVE to reportPlace - prefer this where
+    // your app can use it, because it sidesteps the shared-library pitfall
+    // described in ../README.md entirely (nothing has to call into MassViz
+    // from inside a dlopen'd Place/Agent .so, so there is no way to end up
+    // with two singletons).
+    //
+    // `Places::callAll(int functionId, void *argument[], int arg_size,
+    // int ret_size)` (mass_cpp_core's source/Places.h) returns a host-side
+    // array holding one return value per Place, row-major - see
+    // mass_cpp_core's own ubuntu/samples/main.cpp, which indexes it as
+    // `retvals[i * width + j]`. That is exactly this protocol's place_grid
+    // ordering, so the buffer forwards as-is:
+    //
+    //   double *vals = (double *)places->callAll(MyPlace::report_,
+    //                      (void **)args, sizeof(int), sizeof(double));
+    //   massviz::MassViz::instance().reportPlaces(vals, width * height);
+    //   delete[] vals;
+    //
+    // `values` must have exactly numPlaces entries. Emits one place_grid
+    // event directly, bypassing the gridBuffer_ that reportPlace fills.
+    // Matches MassVizCuda::reportPlaces (../../cuda/mass_viz_cuda.h) and
+    // MassViz.snapshotPlaces (../../java) in shape, so all three adapters
+    // present the same driver-loop story.
+    void reportPlaces(const double* values, size_t numPlaces);
 
     // Graph mode: call reportVertex once per Place during setup (from
     // whatever adjacency your app already tracks - mass_cpp_core's own

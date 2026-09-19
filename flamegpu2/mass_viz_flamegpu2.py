@@ -94,8 +94,11 @@ Usage
     )
     model.addStepFunction(step_fn)
 
-    # ... build and run the CUDASimulation as normal ...
+    # ... build the CUDASimulation, sim.setPopulationData(cells[, walkers])
+    # as normal, THEN before sim.simulate():
+    step_fn.report_initial(cells, walkers)  # optional - see report_initial()
 
+    sim.simulate()
     writer.close()
 
 Only file-based recording is implemented (writes a local .ndjson file), not
@@ -203,6 +206,10 @@ class MassVizStepFunction:
     overlaid as moving markers - the FLAME GPU2 analogue of MASS's
     Place/Agent split.
 
+    Call report_initial() once, before sim.simulate(), if you want the
+    viewer's first frame to be the model's actual starting state rather
+    than the state after step 0 already ran - see that method's docstring.
+
     Intended usage is `model.addStepFunction(MassVizStepFunction(...))` -
     but this class intentionally does NOT subclass `pyflamegpu.HostFunction`
     itself, so that mass_viz_flamegpu2.py can be imported and its JSON/grid-
@@ -255,9 +262,15 @@ class MassVizStepFunction:
         self.agent_id_variable = agent_id_variable
         self.agent_id_type = agent_id_type
 
-    def run(self, FLAMEGPU):
+    def _pack_grid(self, cells):
+        """Shared by run() and report_initial() - see report_initial()'s
+        docstring for why the same code works against both a live device
+        population (DeviceAgentVector, from getPopulationData()) and a plain
+        pre-simulation host population (pyflamegpu.AgentVector): both expose
+        the identical AgentVector_Agent per-element type over len()/[i]
+        (confirmed directly against a real pyflamegpu install - see
+        ../README.md's Windows install section)."""
         values = [0.0] * (self.width * self.height)
-        cells = FLAMEGPU.agent(self.cell_agent_name).getPopulationData()
         get_value = "getVariable" + self.value_type
         get_x = "getVariable" + self.x_type
         get_y = "getVariable" + self.y_type
@@ -268,26 +281,83 @@ class MassVizStepFunction:
             index = y * self.width + x
             if 0 <= index < len(values):
                 values[index] = getattr(cell, get_value)(self.value_variable)
-        self.writer.report_places(values)
+        return values
+
+    def _collect_agents(self, agents):
+        get_ax = "getVariable" + self.agent_x_type
+        get_ay = "getVariable" + self.agent_y_type
+        get_id = (
+            (lambda a: a.getID())
+            if self.agent_id_variable is None
+            else (lambda a, _m="getVariable" + self.agent_id_type,
+                  _v=self.agent_id_variable: getattr(a, _m)(_v))
+        )
+        reported = []
+        for i in range(len(agents)):
+            agent = agents[i]
+            reported.append((
+                get_id(agent),
+                getattr(agent, get_ax)(self.agent_x_variable),
+                getattr(agent, get_ay)(self.agent_y_variable),
+            ))
+        return reported
+
+    def report_initial(self, cell_population, agent_population=None):
+        """Emits the pre-simulation (step -1, i.e. "before step 0 ran")
+        state, using the SAME host-side pyflamegpu.AgentVector objects your
+        driver already built to pass to sim.setPopulationData() - call this
+        once, after building those populations but before sim.simulate().
+
+        Why this exists: a FLAME GPU2 step function (run(), above) is
+        FLAME GPU2's own per-tick host callback, invoked AFTER each step's
+        agent functions execute (confirmed: FLAMEGPU.getStepCounter() reads
+        0 on a step function's first invocation, not before step 0 runs) -
+        so relying on it alone means the viewer's very first frame is
+        already post-step-1, and the initial state as the model actually
+        started is never seen. Unlike run(), which reads the live device
+        population via FLAMEGPU.agent(name).getPopulationData(), this reads
+        the plain host pyflamegpu.AgentVector(s) - the exact same object
+        type and per-element API (AgentVector_Agent), so _pack_grid()/
+        _collect_agents() work unchanged.
+
+        Deliberately does NOT emit a `step` marker - this is setup state
+        before step 0, not a completed tick (see ../PROTOCOL.md).
+
+            cells = pyflamegpu.AgentVector(cell_agent_desc, width * height)
+            # ... populate cells ...
+            sim.setPopulationData(cells)
+            step_fn.report_initial(cells, walkers)  # <- before sim.simulate()
+            sim.simulate()
+
+        IMPORTANT if agent_id_variable is None (the default - using FLAME
+        GPU2's own built-in AgentVector_Agent::getID()): confirmed directly
+        against a real pyflamegpu install that getID() reads 0 for every
+        agent in a host-side AgentVector until the model has actually
+        completed at least one simulation step - FLAME GPU2 assigns real
+        unique ids as part of running agent functions, not at
+        construction or upload time, so EVERY agent in agent_population
+        looks identically id 0 here regardless of population size. Passed
+        straight through, this collapses N agents into one spawn event and
+        makes run()'s first real tick look like N-1 removals plus N fresh
+        spawns under new ids - exactly the kind of one-off "everything
+        respawned" glitch that is easy to miss in a quick look at the
+        viewer. Give your mobile-agent population its own explicit id
+        variable (set once, at construction, to something stable - e.g. its
+        index in the population) and pass agent_id_variable/agent_id_type
+        to MassVizStepFunction's constructor whenever you intend to call
+        report_initial() - see ../examples/flamegpu2-grid-demo/ for a
+        worked example.
+        """
+        self.writer.report_places(self._pack_grid(cell_population))
+        if self.agent_agent_name is not None and agent_population is not None:
+            self.writer.report_agents(self._collect_agents(agent_population))
+
+    def run(self, FLAMEGPU):
+        cells = FLAMEGPU.agent(self.cell_agent_name).getPopulationData()
+        self.writer.report_places(self._pack_grid(cells))
 
         if self.agent_agent_name is not None:
             agents = FLAMEGPU.agent(self.agent_agent_name).getPopulationData()
-            get_ax = "getVariable" + self.agent_x_type
-            get_ay = "getVariable" + self.agent_y_type
-            get_id = (
-                (lambda a: a.getID())
-                if self.agent_id_variable is None
-                else (lambda a, _m="getVariable" + self.agent_id_type,
-                      _v=self.agent_id_variable: getattr(a, _m)(_v))
-            )
-            reported = []
-            for i in range(len(agents)):
-                agent = agents[i]
-                reported.append((
-                    get_id(agent),
-                    getattr(agent, get_ax)(self.agent_x_variable),
-                    getattr(agent, get_ay)(self.agent_y_variable),
-                ))
-            self.writer.report_agents(reported)
+            self.writer.report_agents(self._collect_agents(agents))
 
         self.writer.step(FLAMEGPU.getStepCounter())

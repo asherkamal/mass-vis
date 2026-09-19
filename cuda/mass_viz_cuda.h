@@ -6,9 +6,20 @@
 #include <vector>
 #include <fstream>
 #include <mutex>
+#include <unordered_set>
 
-#include "Places.h"
-#include "Agents.h"
+// Deliberately NOT #include "Places.h"/"Agents.h" here, only a forward
+// declaration: mass_cuda_core's Places.h transitively includes its Logger.h,
+// which pulls in <boost/log/core.hpp>, <boost/log/trivial.hpp>,
+// <boost/log/expressions.hpp> and <boost/format.hpp>. Including it here would
+// impose Boost headers (and linking boost_log/boost_log_setup/pthread) on
+// every translation unit that merely wants to *call* this adapter. Only
+// mass_viz_cuda.cpp actually needs the definition, for getIndexVector(), so
+// it includes Places.h itself. `mass::Places*` appears solely as a pointer
+// parameter below, which an incomplete type satisfies.
+namespace mass {
+class Places;
+}
 
 /**
  * Records mass-viz protocol events (see ../PROTOCOL.md) to an NDJSON file
@@ -84,7 +95,9 @@ private:
 
     // Tracks which agent ids were reported last call, so spawn vs move can
     // be inferred the same way the Java adapter's snapshotAgents does.
-    std::vector<long long> knownAgentIds_;
+    // A set rather than a vector: this is membership-tested once per agent
+    // per tick, which was a linear scan (O(agents^2) per tick) before.
+    std::unordered_set<long long> knownAgentIds_;
 };
 
 } // namespace massviz

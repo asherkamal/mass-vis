@@ -78,6 +78,7 @@ export class GraphRenderer {
   setPlaceValue(id, value) {
     const v = this.vertices.get(String(id));
     if (!v) return;
+    if (!Number.isFinite(value)) return; // see gridRenderer.setPlace
     this.colorScale.observe(value);
     v.mesh.material.color.setHex(this.colorScale.colorFor(value));
   }

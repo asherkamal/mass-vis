@@ -1,0 +1,8 @@
+# Build artifacts - HeatCell/Wanderer/libmass_viz.so are the dlopen'd
+# Place/Agent shared libraries and the mass-viz adapter's own shared
+# library (see ../../cpp/README.md's "Build" section); main is the driver
+# binary. All produced by ./compile.sh against a real mass_cpp_core build.
+HeatCell
+Wanderer
+libmass_viz.so
+main

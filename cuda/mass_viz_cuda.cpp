@@ -1,7 +1,14 @@
 #include "mass_viz_cuda.h"
 
-#include <algorithm>
+// The real definition is needed here (and only here) for
+// Places::getIndexVector - see the forward declaration in the header for why
+// it is not included there. This is the one translation unit that needs
+// mass_cuda_core's include path and Boost's on its command line.
+#include "Places.h"
+
 #include <chrono>
+#include <cmath>
+#include <iomanip>
 #include <sstream>
 
 namespace massviz {
@@ -22,8 +29,26 @@ std::string MassVizCuda::escape(const std::string& s) {
     std::string out;
     out.reserve(s.size());
     for (char c : s) {
-        if (c == '"' || c == '\\') out += '\\';
-        out += c;
+        switch (c) {
+            case '"':  out += "\\\""; break;
+            case '\\': out += "\\\\"; break;
+            case '\b': out += "\\b"; break;
+            case '\f': out += "\\f"; break;
+            case '\n': out += "\\n"; break;
+            case '\r': out += "\\r"; break;
+            case '\t': out += "\\t"; break;
+            default:
+                // Raw control characters are illegal inside a JSON string
+                // (RFC 8259) - see the identical note in ../cpp/include/mass_viz.cpp.
+                if (static_cast<unsigned char>(c) < 0x20) {
+                    static const char* HEX = "0123456789abcdef";
+                    out += "\\u00";
+                    out += HEX[(static_cast<unsigned char>(c) >> 4) & 0xF];
+                    out += HEX[static_cast<unsigned char>(c) & 0xF];
+                } else {
+                    out += c;
+                }
+        }
     }
     return out;
 }
@@ -40,12 +65,26 @@ std::string MassVizCuda::intVectorToJson(const std::vector<int>& values) {
 }
 
 namespace {
+// NaN/Infinity have no JSON literal - streaming one emits a bare `nan`/`inf`
+// token, which is invalid JSON, so the server drops the whole event and the
+// viewer silently stops updating. Emit `null`, which the renderers skip. See
+// the fuller note in ../cpp/include/mass_viz.cpp. Precision raised from
+// ostream's default 6 significant digits to 9 (float round-trip exact);
+// trailing zeros are still dropped, so ordinary values cost no extra bytes.
+void writeNumber(std::ostringstream& os, double value) {
+    if (!std::isfinite(value)) {
+        os << "null";
+        return;
+    }
+    os << value;
+}
+
 std::string doubleArrayToJson(const double* values, size_t n) {
     std::ostringstream os;
-    os << '[';
+    os << std::setprecision(9) << '[';
     for (size_t i = 0; i < n; i++) {
         if (i) os << ',';
-        os << values[i];
+        writeNumber(os, values[i]);
     }
     os << ']';
     return os.str();
@@ -85,14 +124,14 @@ void MassVizCuda::reportPlaces(const double* values, size_t numPlaces) {
 
 void MassVizCuda::reportAgents(mass::Places* places, const int* agentPlaceIndex,
                                 const long long* agentId, int numAgents) {
-    std::vector<long long> seen;
-    seen.reserve(numAgents);
+    std::unordered_set<long long> seen;
+    seen.reserve(static_cast<size_t>(numAgents));
 
     for (int i = 0; i < numAgents; i++) {
         long long id = agentId[i];
-        seen.push_back(id);
+        seen.insert(id);
         std::vector<int> coord = places->getIndexVector(agentPlaceIndex[i]);
-        bool known = std::find(knownAgentIds_.begin(), knownAgentIds_.end(), id) != knownAgentIds_.end();
+        bool known = knownAgentIds_.count(id) != 0;
 
         std::ostringstream os;
         os << "{\"v\":1,\"runId\":\"" << escape(runId_) << "\",\"type\":\""
@@ -103,7 +142,7 @@ void MassVizCuda::reportAgents(mass::Places* places, const int* agentPlaceIndex,
     }
 
     for (long long id : knownAgentIds_) {
-        if (std::find(seen.begin(), seen.end(), id) == seen.end()) {
+        if (seen.count(id) == 0) {
             std::ostringstream os;
             os << "{\"v\":1,\"runId\":\"" << escape(runId_) << "\",\"type\":\"agent_remove\",\"t\":"
                << nowMillis() << ",\"id\":\"" << id << "\"}";

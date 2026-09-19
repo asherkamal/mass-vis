@@ -83,6 +83,11 @@ export class GridRenderer {
     const key = index.join(',');
     const i = this.cellIndex.get(key);
     if (i === undefined) return;
+    // A non-finite value (a diverging simulation, or a `null` an adapter
+    // emitted in place of NaN/Infinity - see PROTOCOL.md) carries no color
+    // information. Leave the cell at its last known color rather than
+    // painting it whatever colorFor() coerces a null into.
+    if (!Number.isFinite(value)) return;
     this.colorScale.observe(value);
     this.mesh.setColorAt(i, new THREE.Color(this.colorScale.colorFor(value)));
     if (this.mesh.instanceColor) this.mesh.instanceColor.needsUpdate = true;
@@ -99,7 +104,7 @@ export class GridRenderer {
       for (let x = 0; x < w; x++) {
         const i = y * w + x;
         const value = values[i];
-        if (value === undefined) continue;
+        if (!Number.isFinite(value)) continue; // undefined, null, NaN - see setPlace
         this.colorScale.observe(value);
         this.mesh.setColorAt(i, color.setHex(this.colorScale.colorFor(value)));
       }

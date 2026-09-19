@@ -56,36 +56,101 @@ trusting population order - verified by the smoke test described below,
 which deliberately feeds cell agents in reverse order and asserts the
 output is still correctly ordered by (x,y).
 
-## Status
+## Status: actually run against a real pyflamegpu install, on a real GPU
 
-Written against the API shape above, confirmed directly from FLAME GPU2's
-real headers and SWIG interface - not guessed, not taken from documentation
-prose (an initial pass at that, via a doc-fetching tool, repeatedly
-hedged/truncated and admitted it couldn't confirm exact method names, so it
-was discarded in favor of reading the actual header files from GitHub).
-Compiles clean (`python -m py_compile`) and was run against a standalone
-smoke test using fake stand-ins for `HostAgentAPI`/`DeviceAgentVector`/the
-per-agent proxy (same spirit as `../cpp`'s standalone sample program) -
-7 events across 2 ticks, every line validated as parseable JSON, correct
-row-major grid packing (including with cell agents fed in reverse order),
-and correct `agent_spawn`/`agent_move` inference. The smoke test itself
-wasn't committed - see "Usage" below for how to reproduce it.
+**Fully verified end-to-end.** Every API assumption in this file (the
+`FLAMEGPU.agent(name).getPopulationData()` shape, `getVariableFloat`/
+`getVariableUInt32`-style typed getters, plain `getID()`, the
+`pyflamegpu.HostFunction` director-wrapper pattern) was confirmed directly
+against a real `pyflamegpu` install and a real GPU (RTX 3080) - not just
+read off headers - and `examples/flamegpu2-grid-demo/` (a `Cell` population
+running a real diffusion step plus a `Walker` population doing a real
+device-side random walk, both real `pyflamegpu.CUDASimulation` runs, not
+stubs) produced a `.ndjson` recording checked three ways: every one of 287
+events parses as valid JSON; the initial temperature field matches the
+exact analytic formula at every cell of a deliberately asymmetric 16x10
+grid (confirming the "don't trust population order" design choice below is
+correctly implemented, not just documented); and the field's variance
+measurably decreases over 40 diffusion steps (confirms the simulation is
+actually running correctly on the GPU, not just plumbing data through). The
+recording was also pushed through a live `mass-vis` server, where a second
+browser tab joining mid-run immediately showed full state.
 
-**Not run against a real `pyflamegpu` install or GPU** - neither was
-available in the environment that authored this adapter. Per the project's
-own intent (FLAME GPU2 benchmarks MASS CUDA), please build a small
-FLAME GPU2 model against this adapter once a CUDA machine is available and
-report back anything that doesn't compile or behave as documented -
-particularly whether `getPopulationData()`'s per-variable access pattern
-performs acceptably at the scale `../benchmark/RESULTS.md` tested the CUDA/
-C++/Java adapters at, since that hasn't been measured here.
+### Windows install: the pip wheels do not bundle what they need - here's what actually worked
+
+`pip install --index-url https://whl.flamegpu.com pyflamegpu` was this
+project's own original advice, and it is wrong in two ways, found by
+actually running it:
+
+1. **`--index-url` doesn't work at all against whl.flamegpu.com** - it's a
+   static GitHub Pages site, not a PEP 503 index (`pip install
+   --index-url ... pyflamegpu` with no further path returns "no versions
+   found"). Use **`--extra-index-url
+   https://whl.flamegpu.com/whl/cuda124/`** (or whichever CUDA/vis variant
+   you want - the exact URLs are listed on the site's own homepage under
+   "Using `-f, --find-links`" / "Using `--extra-index-url`", not obvious
+   from the top-level URL alone).
+2. **The installed wheel does not bundle CUDA, NVRTC, cuRAND, or a linker**
+   despite appearances - `import pyflamegpu` fails with a DLL-not-found
+   warning for `nvrtc64_*.dll` unless a full CUDA Toolkit is separately
+   installed. Getting this working *without* a multi-GB Toolkit installer
+   (not what this project asked for) took five separate `pip install`
+   packages, one non-obvious merged-include-directory trick, and iterating
+   through the actual compile/link errors one at a time:
+
+   ```
+   pip install --extra-index-url https://whl.flamegpu.com/whl/cuda124/ pyflamegpu
+   pip install nvidia-cuda-nvrtc-cu12==12.4.127 nvidia-cuda-runtime-cu12==12.4.127 \
+       nvidia-curand-cu12==10.3.5.147 nvidia-cuda-cccl-cu12==12.4.127.post1 \
+       nvidia-nvjitlink-cu12==12.4.127
+   ```
+
+   `_pyflamegpu_env.py` in this directory (imported by
+   `examples/flamegpu2-grid-demo/flamegpu2_grid_demo.py` via a `sys.path`
+   insert) wraps all of this:
+   adds each package's `bin/` to `os.add_dll_directory()`, and merges
+   `nvidia-cuda-runtime-cu12`'s and `nvidia-cuda-cccl-cu12`'s separate
+   `include/` directories into one cached combined directory pointed to by
+   `CUDA_PATH` (NVRTC's JIT compiler only accepts a single include root,
+   the way a real Toolkit install lays every header out together - these
+   pip packages don't). **Must be imported and its `setup()` called before
+   the first `import pyflamegpu` anywhere in the process** - pyflamegpu
+   resolves its NVRTC DLL location at import time.
+
+   Pin every package to the same CUDA release train as the `pyflamegpu`
+   build (`cuda124` above -> the `12.4.x` line) - a version mismatch
+   between these components is the kind of thing that fails obscurely
+   rather than with a clear error.
+
+   If you have a real CUDA Toolkit 12.4+ installed (the NVIDIA installer,
+   not pip) instead, none of this is necessary - importing plain
+   `pyflamegpu` already works once `CUDA_PATH`/`PATH` point at it.
+
+### A real gotcha this caught: built-in agent ids are 0 until the first step actually runs
+
+`report_initial()` (below) exists specifically because a FLAME GPU2 step
+function only fires *after* each step's agent functions execute, so without
+it the viewer's first frame is already post-step-1. But calling it with the
+default `agent_id_variable=None` (i.e. relying on FLAME GPU2's own built-in
+`AgentVector_Agent::getID()`) breaks in a specific, confirmed way: **every
+agent's `getID()` reads `0` until the simulation has completed at least one
+real step** (verified directly - `getID()` on a freshly-constructed host
+`AgentVector`, before *and even immediately after* `sim.setPopulationData()`,
+returns `0` for every agent; only after `sim.step()`/`sim.simulate()` runs
+do real sequential ids appear). Called before the first step, every agent
+in your mobile population looks like the same id, which then all appear to
+"respawn" under new ids on the real first tick. Give your mobile-agent
+population an explicit, stable id variable instead (set once at
+construction) and pass `agent_id_variable`/`agent_id_type` - see
+`examples/flamegpu2-grid-demo/`'s `walker_id` variable for the fix, and
+`MassVizStepFunction.report_initial()`'s docstring in
+`mass_viz_flamegpu2.py` for the full explanation.
 
 Only file-based recording is implemented (`MassVizWriter` writes a local
 `.ndjson` file) - not a live WebSocket connection, same limitation as the
-CUDA and C++ adapters and for the same reason (no way to test a hand-rolled
-network client here). Drop the resulting file into
+CUDA and C++ adapters. Drop the resulting file into
 `../server/recordings/<runId>.ndjson` and use the browser viewer's Replay
-mode.
+mode, or push it into a live run with `../benchmark/push-ndjson.js`.
 
 ## Usage
 
@@ -142,8 +207,36 @@ step_fn = MassVizStepFunction(
     cell_agent_name="Cell", value_variable="temperature", value_type="Float",
     agent_agent_name="Walker",
     agent_x_variable="x", agent_y_variable="y", agent_x_type="UInt32", agent_y_type="UInt32",
+    # See "A real gotcha this caught" above - without a custom id variable,
+    # report_initial() (below) sees every agent as the same id (0).
+    agent_id_variable="walker_id", agent_id_type="UInt32",
 )
 ```
+
+See `examples/flamegpu2-grid-demo/flamegpu2_grid_demo.py` for the complete
+working version, including the `walker_id` variable declaration.
+
+### Emitting the true starting state
+
+`MassVizStepFunction.run()` only fires after a step's agent functions have
+already executed, so without an extra call the viewer's first frame is
+already post-step-1. Call `report_initial()` once, with the same host-side
+`pyflamegpu.AgentVector` populations you built for `sim.setPopulationData()`,
+**before** `sim.simulate()`/`sim.step()`:
+
+```python
+cells = pyflamegpu.AgentVector(cell_agent_desc, width * height)
+# ... populate cells ...
+sim.setPopulationData(cells)
+step_fn.report_initial(cells, walkers)  # before simulate()/step()
+sim.simulate()
+```
+
+This works because FLAME GPU2's host-side `pyflamegpu.AgentVector` and its
+device-side `DeviceAgentVector` (from `getPopulationData()`) share the
+exact same per-element `AgentVector_Agent` type and typed-getter API -
+confirmed directly against a real install - so `report_initial()` reuses
+`run()`'s own grid-packing code unchanged.
 
 ## Build / install
 

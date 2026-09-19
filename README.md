@@ -1,13 +1,12 @@
 # mass-viz
 
 A unified visualization tool for all four MASS variants in this workspace:
-**MASS CUDA**, **MASS C++**, **MASS Java**, and (a documented protocol
-contract for, not yet built) **FLAME GPU2** - one shared live/replay web
-viewer, one event protocol, supporting both a 2D spatial grid rendering mode
-(top-down, orthographic - pan/zoom, no rotation) and a 3D graph rendering
-mode with agent-migration animation. Grid mode was originally 2D/3D; 3D grid
-support was deliberately dropped as unnecessary complexity - see
-`server/public/src/gridRenderer.js`.
+**MASS CUDA**, **MASS C++**, **MASS Java**, and **FLAME GPU2** - one shared
+live/replay web viewer, one event protocol, supporting both a 2D spatial
+grid rendering mode (top-down, orthographic - pan/zoom, no rotation) and a
+3D graph rendering mode with agent-migration animation. Grid mode was
+originally 2D/3D; 3D grid support was deliberately dropped as unnecessary
+complexity - see `server/public/src/gridRenderer.js`.
 
 It replaces the need for two prior, narrower tools already in this
 workspace:
@@ -35,10 +34,11 @@ renderer that handles both spatial grids and graphs.
   be complete and correct against real, directly-verified API signatures.
 - **`examples/java-grid-demo`, `examples/java-graph-demo`** - runnable demo
   apps exercising both render modes end-to-end.
-- **`cpp/`** - the MASS C++ (cluster) adapter. Self-contained, standard-
-  library-only code; written against `mass_cpp_core`'s real API shape
-  (which, unlike Java, requires a self-reporting pattern - see
-  `cpp/README.md` for why).
+- **`cpp/`** - the MASS C++ (cluster) adapter, self-reporting from inside
+  `Place`/`Agent::callMethod` (plus a driver-loop polling path for grid
+  mode) - see `cpp/README.md` for why both exist, and its "Build" section
+  for the shared-library link requirement a real `mass_cpp_core` build
+  surfaced.
 - **`cuda/`** - the MASS CUDA adapter. Grid mode only (CUDA core has no
   graph API); polls via `Places::downloadAttributes<T>()`.
 - **`flamegpu2/`** - the FLAME GPU2 (`pyflamegpu`) adapter. Grid mode only,
@@ -49,34 +49,47 @@ renderer that handles both spatial grids and graphs.
   for a fair side-by-side. Built via a FLAME GPU2 step function
   (`pyflamegpu.HostFunction`) rather than a driver-loop call, since that's
   FLAME GPU2's own per-tick host hook - see `flamegpu2/README.md` for why
-  that differs from `cuda/`'s shape and for the exact API citations. No
-  FLAME GPU2 source or GPU was available in this workspace, so - as
-  instructed - actually compiling/running it against a real `pyflamegpu`
-  install is deferred; it's written against API shapes confirmed directly
-  from FLAME GPU2's own headers/SWIG interface on GitHub, and verified
-  against a standalone fake-`pyflamegpu` smoke test (see
-  `flamegpu2/README.md`'s Status section).
+  that differs from `cuda/`'s shape and for the exact API citations, plus
+  what a real Windows `pyflamegpu` install actually took.
+- **`examples/cpp-grid-demo/`, `examples/cuda-grid-demo/`,
+  `examples/flamegpu2-grid-demo/`** - runnable demo apps exercising the
+  C++, CUDA, and FLAME GPU2 adapters end-to-end against their real
+  libraries, matching the Java demos below.
+- **`benchmark/push-ndjson.js`** - replays a recorded `.ndjson` file into a
+  *live* run on a running server, at a controllable pace. The C++, CUDA,
+  and FLAME GPU2 adapters are all file-only writers with no WebSocket
+  client, so this is what lets their output exercise live rendering and the
+  late-join snapshot path, not just Replay mode.
 
 ## What's verified vs. not
 
 This workspace originally had Node and a JDK but no Maven, no C++ compiler,
-no CUDA toolchain, and no FLAME GPU2 source. Maven and a standalone GCC
-(MinGW-w64) were since fetched to close the Java and C++ gaps respectively -
-see `java/README.md`'s Troubleshooting section for what the Java side took
-(a custom `settings.xml` to unblock a plain-HTTP repo, a custom truststore
-for one dependency's TLS cert, and a few genuine `mass_java_core` runtime
-gotchas found and fixed along the way) and `cpp/README.md`'s Status section
-for the C++ side (much cheaper - the adapter is self-contained, so no
-`mass_cpp_core` build was needed at all, just the compiler itself).
+no CUDA toolchain, and no FLAME GPU2 source. Closing those gaps took, in
+order: Maven and a standalone GCC (MinGW-w64) for the Java and initial C++
+adapter work - see `java/README.md`'s Troubleshooting section for what the
+Java side took (a custom `settings.xml` to unblock a plain-HTTP repo, a
+custom truststore for one dependency's TLS cert, and a few genuine
+`mass_java_core` runtime gotchas found and fixed along the way). Verifying
+the C++, CUDA, and FLAME GPU2 adapters against their *real* libraries (not
+just standalone/stubbed) took real installs on top of that: WSL Ubuntu 24.04
+with a full build toolchain (`mass_cpp_core` and `mass_cuda_core` are both
+Linux-only - `dlopen`, pthreads, an autotools libssh2 build), the CUDA
+Toolkit inside WSL (12.9 specifically - `mass_cuda_core` pins `-std=c++14`,
+which nvcc 13 no longer accepts), and a real `pyflamegpu` install on Windows
+(no CUDA Toolkit needed there - see `flamegpu2/README.md` for what that
+actually took, which is not what its own pip index page suggests). Every
+one of the three found genuine, fixable friction points or real upstream
+bugs along the way - see each adapter's own README for the full story
+rather than repeating it here.
 
 | Piece | Status |
 |---|---|
 | `server/` (protocol, state, snapshot-on-join, recording) | Built and tested here - see `server/server.js`'s test run (WebSocket protocol test covering grid mode, graph mode, late-join snapshot correctness, and NDJSON recording, all passing) |
 | `server/public/` (browser viewer) | Built here; syntax-checked (`node --check` on every file); **not** visually verified in a real browser - browser automation was declined for this session. Open `http://localhost:8080` yourself to confirm rendering. |
 | `java/` adapter + examples | **Actually compiled and run**, not just signature-checked: `mass_java_core` and `mass-viz-java` both `mvn install` cleanly, and both example apps run end-to-end against a live `server/` instance producing correct events (verified by reading the recorded `.ndjson` back) - see `java/README.md`. |
-| `cpp/` adapter | **Actually compiled and run**: self-contained (no `mass_cpp_core` headers needed), so a standalone GCC (fetched via `winget`) was enough to compile it clean and run a synthetic sample through both grid and graph mode, verified against the live server via both file-replay and `POST /event` - caught and fixed one real comment-parsing bug. The `Place`/`Agent` subclass wiring itself is still unverified (real `mass_cpp_core` isn't buildable here) - see `cpp/README.md`. |
-| `cuda/` adapter | Written against confirmed API shape; needs `mass_cuda_core` headers + CUDA toolchain to even parse, so entirely unverified here. |
-| `flamegpu2/` adapter | Written against confirmed API shape (real FLAME GPU2 headers/SWIG interface, read from GitHub); syntax-checked (`python -m py_compile`) and run against a standalone fake-`pyflamegpu` smoke test - not run against a real `pyflamegpu` install or GPU (none available here). |
+| `cpp/` adapter + `examples/cpp-grid-demo/` | **Actually compiled and run against real `mass_cpp_core`** (built from source in WSL Ubuntu 24.04): a real `HeatCell`/`Wanderer` Place/Agent pair, `dlopen`'d as their own shared libraries the way `mass_cpp_core` actually loads them, ran a full 40-tick simulation end to end and round-tripped through a live server with a correct late-join snapshot. Caught and fixed a real bug along the way - the self-reporting `MassViz` singleton silently discarding every value when compiled into more than one `.so` - see `cpp/README.md`. |
+| `cuda/` adapter + `examples/cuda-grid-demo/` | **Actually compiled and run against real `mass_cuda_core`, on a real GPU** (RTX 3080, via WSL): a real `HeatCell`/`Walker` Place/Agent pair with 4-neighbor grid connectivity and host-driven diffusion, verified against a live server with a correct late-join snapshot. Building `mass_cuda_core` itself from source surfaced three real upstream bugs (a missing Thrust include, a hardcoded 2-GPU assumption, a missing Boost.Log macro) and the demo caught one real bug of its own (custom attributes need a second `finalizeAttributes()` call) - see `cuda/README.md` for all of it, including the Boost.Log linking story that ate most of this phase's time. |
+| `flamegpu2/` adapter + `examples/flamegpu2-grid-demo/` | **Actually run against a real `pyflamegpu` install, on a real GPU**: a `Cell` population running real diffusion plus a `Walker` population doing a real device-side random walk, verified against a live server with a correct late-join snapshot. Getting `pyflamegpu` importable on Windows without a full CUDA Toolkit install took five extra `pip` packages and a merged-include-directory trick (now wrapped in `flamegpu2/_pyflamegpu_env.py`) - see `flamegpu2/README.md`, which also covers a real gotcha this caught (FLAME GPU2's built-in agent ids read `0` until the first step actually runs). |
 
 ## Quick start
 
