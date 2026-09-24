@@ -9,14 +9,9 @@
 // mass-viz was actually measured at (2000 nodes/1000 agents, steady 60fps -
 // see ../benchmark/RESULTS.md's Track A) - so running this with no flags is
 // a meaningful live-mode stress test, not a toy example.
-const http = require('http');
+const { parseArgs, postJson } = require('./lib');
 
-const args = Object.fromEntries(
-  process.argv.slice(2).map((a) => {
-    const [k, v] = a.replace(/^--/, '').split('=');
-    return [k, v];
-  })
-);
+const args = parseArgs().flags;
 
 const tool = args.tool || 'massviz';
 const nodeCount = Number(args.nodes || 1000);
@@ -30,20 +25,7 @@ if (!['massviz', 'graphosaurus'].includes(tool)) {
   process.exit(1);
 }
 
-function post(path, body) {
-  return new Promise((resolve, reject) => {
-    const data = JSON.stringify(body);
-    const req = http.request(
-      { hostname: 'localhost', port, path, method: 'POST', headers: { 'Content-Type': 'application/json' } },
-      (res) => {
-        res.on('data', () => {});
-        res.on('end', resolve);
-      }
-    );
-    req.on('error', reject);
-    req.end(data);
-  });
-}
+const post = (path, body) => postJson({ port, path, body });
 
 async function postBatch(events, tool) {
   if (tool === 'massviz') {

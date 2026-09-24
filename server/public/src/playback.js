@@ -68,6 +68,6 @@ export class PlaybackControls {
   }
 
   refreshLabel() {
-    this.stepLabel.textContent = `step ${this.connection.currentStep + 1} / ${this.connection.stepCount}`;
+    this.stepLabel.textContent = this.connection.frameLabel();
   }
 }

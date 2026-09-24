@@ -232,6 +232,14 @@ step_fn.report_initial(cells, walkers)  # before simulate()/step()
 sim.simulate()
 ```
 
+`report_initial()` ends with a `step` marker numbered `-1` (see
+`../PROTOCOL.md`). Without a marker the initial events sit before the first
+real `step` and get folded into step 0's replay frame, so seeking to the
+start would show the state *after* step 0 and the true starting state would
+never be visible. Non-finite floats (NaN/Infinity) are written as `null`
+(Python's `json.dumps` would otherwise emit bare `NaN`, which is not valid
+JSON and makes the recording fail to load).
+
 This works because FLAME GPU2's host-side `pyflamegpu.AgentVector` and its
 device-side `DeviceAgentVector` (from `getPopulationData()`) share the
 exact same per-element `AgentVector_Agent` type and typed-getter API -

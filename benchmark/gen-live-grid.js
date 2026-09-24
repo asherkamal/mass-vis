@@ -5,30 +5,19 @@
 // a continuous live simulation to watch update in real time, at whatever
 // scale you ask for. Runs for a fixed duration then exits.
 //
-// Usage: node gen-live-grid.js <width> <height> [durationMs] [intervalMs] [runId]
-const http = require('http');
+// Usage: node gen-live-grid.js <width> <height> [durationMs] [intervalMs] [runId] [--port=8080]
+const { parseArgs, postJson } = require('./lib');
 
-const [, , widthArg, heightArg, durationArg, intervalArg, runIdArg] = process.argv;
+const { positional, flags } = parseArgs();
+const [widthArg, heightArg, durationArg, intervalArg, runIdArg] = positional;
+const port = Number(flags.port || 8080);
 const W = Number(widthArg || 100);
 const H = Number(heightArg || 100);
 const DURATION = Number(durationArg || 30000);
 const INTERVAL = Number(intervalArg || 500);
 const runId = runIdArg || 'livetest-grid';
 
-function post(body) {
-  return new Promise((resolve, reject) => {
-    const data = JSON.stringify(body);
-    const req = http.request(
-      { hostname: 'localhost', port: 8080, path: '/event', method: 'POST', headers: { 'Content-Type': 'application/json' } },
-      (res) => {
-        res.on('data', () => {});
-        res.on('end', resolve);
-      }
-    );
-    req.on('error', reject);
-    req.end(data);
-  });
-}
+const post = (body) => postJson({ port, body });
 
 function gridValues(t) {
   const values = new Array(W * H);

@@ -35,7 +35,7 @@ export class MassVizScene {
 
     window.addEventListener('resize', () => this._onResize());
     this._tick();
-    this._startBenchFpsDisplay();
+    this._startFpsDisplay();
   }
 
   // mode: "2d" (orthographic, top-down, pan/zoom only) or "3d" (perspective, free orbit).
@@ -98,33 +98,24 @@ export class MassVizScene {
     for (const cb of this._frameCallbacks) cb(dt);
     this.controls.update();
     this.renderer.render(this.scene, this.camera);
-    this._benchFrameCount = (this._benchFrameCount || 0) + 1;
+    this._frameCount = (this._frameCount || 0) + 1;
   };
 
-  // BENCHMARK-ONLY: local instrumentation for the mass-viz vs. graphosaurus
-  // comparison, mirroring the equivalent counter added to graphosaurus's
-  // Frame.prototype.forceRerender (src/frame.js there). Counts every actual
-  // render() call, same chokepoint semantics as that patch.
-  _startBenchFpsDisplay() {
+  // Updates the #fps readout in the top bar once a second from the number
+  // of actual render() calls (started in the constructor; also what the
+  // mass-viz vs. graphosaurus comparison in benchmark/RESULTS.md read).
+  _startFpsDisplay() {
     let lastCount = 0;
     let lastTime = performance.now();
     setInterval(() => {
       const now = performance.now();
-      const count = this._benchFrameCount || 0;
+      const count = this._frameCount || 0;
       const dt = (now - lastTime) / 1000;
       const fps = dt > 0 ? (count - lastCount) / dt : 0;
-      const el = document.getElementById('benchFps');
+      const el = document.getElementById('fps');
       if (el) el.textContent = fps.toFixed(1) + ' FPS';
       lastCount = count;
       lastTime = now;
     }, 1000);
-  }
-
-  clearGroup(group) {
-    while (group.children.length) {
-      const child = group.children.pop();
-      if (child.geometry) child.geometry.dispose();
-      if (child.material) child.material.dispose();
-    }
   }
 }

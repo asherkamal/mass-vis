@@ -10,15 +10,46 @@
   #hud { position: fixed; top: 0; left: 0; right: 0; display: flex; align-items: center; gap: 10px;
          padding: 8px 12px; background: rgba(10,14,20,0.78); border-bottom: 1px solid #223; z-index: 2; flex-wrap: wrap; }
   #hud h1 { font-size: 13px; margin: 0 12px 0 0; color: #7fb3ff; font-weight: 600; letter-spacing: .02em; }
-  select, button { background: #16202b; color: #dbe4ee; border: 1px solid #2c3d4f; border-radius: 4px; padding: 4px 8px; font: inherit; }
+  select, button, #searchBox { background: #16202b; color: #dbe4ee; border: 1px solid #2c3d4f; border-radius: 4px; padding: 4px 8px; font: inherit; }
   button:hover, select:hover { border-color: #4a7ab5; cursor: pointer; }
   #status { color: #8aa0b4; }
+  #fps { font-weight: bold; }
   #status.ok { color: #6fcf97; }
   #status.err { color: #eb5757; }
   #playback { display: none; align-items: center; gap: 8px; }
   #playback.active { display: flex; }
   #stepSlider { width: 220px; }
   #legend { display: flex; align-items: center; gap: 6px; margin-left: auto; }
+  #liveControls { display: flex; align-items: center; gap: 8px; }
+  #liveStep { color: #8aa0b4; font-variant-numeric: tabular-nums; }
+  #graphControls { display: none; align-items: center; gap: 8px; }
+  #graphControls.active { display: flex; }
+  #graphControls label { color: #8aa0b4; display: flex; align-items: center; gap: 4px; }
+  #searchBox { width: 150px; }
+  #searchBox.miss { border-color: #eb5757; }
+  #groupLegend { display: none; position: fixed; left: 12px; bottom: 12px; z-index: 2; background: rgba(10,14,20,0.82);
+                 border: 1px solid #223; border-radius: 6px; padding: 8px 10px; max-height: 45vh; overflow: auto; }
+  #groupLegend.active { display: block; }
+  .legendTitle { color: #8aa0b4; margin-bottom: 4px; }
+  .groupRow { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+  .swatch { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+  #inspector { display: none; position: fixed; top: 56px; right: 12px; width: 290px; max-height: calc(100vh - 80px); overflow: auto; z-index: 2;
+               background: rgba(10,14,20,0.9); border: 1px solid #2c3d4f; border-radius: 6px; padding: 10px 12px; }
+  #inspector.active { display: block; }
+  .inspHead { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+  .inspTitle { font-weight: 600; color: #fff; flex: 1; overflow-wrap: anywhere; }
+  .badge { font-size: 11px; padding: 1px 6px; border-radius: 8px; background: #2c3d4f; text-transform: uppercase; letter-spacing: .04em; }
+  .badge.agent { background: #6b5b1f; }
+  .inspClose { padding: 0 6px; }
+  #inspector table { border-collapse: collapse; width: 100%; }
+  #inspector th { text-align: left; color: #8aa0b4; font-weight: 400; padding: 1px 10px 1px 0; vertical-align: top; white-space: nowrap; }
+  #inspector td { padding: 1px 0; overflow-wrap: anywhere; }
+  .linkHead { color: #8aa0b4; margin: 8px 0 3px; }
+  .links { display: flex; flex-wrap: wrap; gap: 4px; }
+  .link { padding: 1px 6px; font-size: 12px; }
+  .link.agent { border-color: #8a7a2f; }
+  #tip { display: none; position: fixed; z-index: 3; pointer-events: none; white-space: pre; background: rgba(10,14,20,0.94);
+         border: 1px solid #4a7ab5; border-radius: 4px; padding: 4px 8px; }
   #legendBar { width: 140px; height: 10px; border-radius: 3px;
                background: linear-gradient(90deg, #2166ac, #ffffbf, #b2182b); }
 </style>
@@ -33,13 +64,41 @@
     </select>
     <button id="connectBtn">Connect</button>
     <span id="status">idle</span>
-    <!-- BENCHMARK-ONLY: FPS readout for the mass-viz vs. graphosaurus comparison -->
-    <span id="benchFps" style="font-weight:bold;">-- FPS</span>
+    <div id="liveControls">
+      <span id="liveStep"></span>
+      <button id="pauseBtn" title="Freeze on the recorded history so far, scrub freely, then return with Go Live">Pause</button>
+      <button id="endBtn" title="End the live view and keep this run as a replay">End live</button>
+      <button id="goLiveBtn" title="Jump back to the live stream">Go live</button>
+      <button id="refreshBtn" title="Reload the recording to include steps recorded since it was loaded">Refresh</button>
+    </div>
+    <div id="graphControls">
+      <input id="searchBox" type="search" placeholder="find node / agent…" />
+      <label>edges
+        <select id="edgeMode">
+          <option value="faint" selected>faint</option>
+          <option value="off">off</option>
+          <option value="full">full</option>
+        </select>
+      </label>
+      <label>color
+        <select id="colorMode">
+          <option value="group" selected>group</option>
+          <option value="value">value</option>
+        </select>
+      </label>
+      <label><input id="agentsToggle" type="checkbox" checked /> agents</label>
+    </div>
+    <span id="fps">-- FPS</span>
 
     <div id="playback">
       <button id="playPauseBtn">Play</button>
       <input type="range" id="stepSlider" min="0" max="0" value="0" />
       <span id="stepLabel">step 0 / 0</span>
+      <select id="windowSelect" title="How much history to load (a busy run records hundreds of KB per step)">
+        <option value="100" selected>last 100 steps</option>
+        <option value="500">last 500 steps</option>
+        <option value="0">all steps</option>
+      </select>
       <select id="speedSelect">
         <option value="1">1x</option>
         <option value="2" selected>2x</option>
@@ -49,12 +108,15 @@
     </div>
 
     <div id="legend">
-      <span id="legendMin">0</span>
+      <span id="legendMin">–</span>
       <div id="legendBar"></div>
-      <span id="legendMax">1</span>
+      <span id="legendMax">–</span>
     </div>
   </div>
   <div id="viewport"></div>
+  <div id="groupLegend"></div>
+  <div id="inspector"></div>
+  <div id="tip"></div>
 
   <script type="importmap">
     { "imports": { "three": "/vendor/three.module.js" } }

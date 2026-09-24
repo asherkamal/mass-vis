@@ -3,6 +3,7 @@
 #include <chrono>
 #include <cmath>
 #include <iomanip>
+#include <limits>
 #include <sstream>
 
 namespace massviz {
@@ -126,7 +127,11 @@ void MassViz::openGrid(const std::string& filePath, const std::string& runId,
         runId_ = runId;
         open_ = out_.is_open();
         dims_ = dims;
-        gridBuffer_.assign(dims.size() >= 2 ? static_cast<size_t>(dims[0]) * dims[1] : 0, 0.0);
+        // NaN, not 0: a cell nobody reports stays "no data" (sent as null,
+        // which the viewer leaves uncolored) instead of reading as 0 and
+        // dragging the color scale's minimum down to it.
+        gridBuffer_.assign(dims.size() >= 2 ? static_cast<size_t>(dims[0]) * dims[1] : 0,
+                           std::numeric_limits<double>::quiet_NaN());
         gridBufferDirty_ = false;
     }
 

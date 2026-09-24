@@ -1,0 +1,8 @@
+{
+  "name": "mass-viz-tests",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --import ./register.mjs --test --test-concurrency=1"
+  }
+}

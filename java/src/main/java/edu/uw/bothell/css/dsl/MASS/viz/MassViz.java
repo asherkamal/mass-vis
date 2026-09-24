@@ -44,6 +44,7 @@ public final class MassViz {
     public static final String MODE_GRAPH = "graph";
 
     private static volatile MassViz DEFAULT;
+    private static boolean autoConnectAttempted = false;
 
     private final VizClient client;
     private final String runId;
@@ -76,8 +77,44 @@ public final class MassViz {
         DEFAULT = viz;
     }
 
+    /**
+     * The instance {@link VizPlace}/{@link VizAgent} hooks report to. When
+     * {@link #setDefault} was never called in this JVM - which is always the
+     * case on a MASS worker JVM in a multi-node run, since only the driver's
+     * main() runs your startup code - this connects on first use from the
+     * {@code massviz.url} system property (or {@code MASSVIZ_URL} environment
+     * variable), reporting into the run named by {@code massviz.runId} /
+     * {@code MASSVIZ_RUN_ID} (default "mass-run") in the mode given by
+     * {@code massviz.mode} / {@code MASSVIZ_MODE} ("grid", the default, or
+     * "graph"). That instance never sends {@code init}: the driver's own
+     * {@code initGrid}/{@code initGraph} does. Returns null (hooks do
+     * nothing) if neither is configured, or the connection fails.
+     */
     static MassViz getDefault() {
-        return DEFAULT;
+        MassViz viz = DEFAULT;
+        if (viz != null) return viz;
+        synchronized (MassViz.class) {
+            if (DEFAULT != null || autoConnectAttempted) return DEFAULT;
+            autoConnectAttempted = true;
+            String url = setting("massviz.url", "MASSVIZ_URL");
+            if (url == null) return null;
+            try {
+                String runId = setting("massviz.runId", "MASSVIZ_RUN_ID");
+                MassViz auto = new MassViz(VizClient.connect(url), runId != null ? runId : "mass-run");
+                String mode = setting("massviz.mode", "MASSVIZ_MODE");
+                auto.mode = MODE_GRAPH.equals(mode) ? MODE_GRAPH : MODE_GRID;
+                DEFAULT = auto;
+            } catch (RuntimeException e) {
+                System.err.println("[mass-viz] could not auto-connect to " + url + ": " + e.getMessage());
+            }
+            return DEFAULT;
+        }
+    }
+
+    private static String setting(String property, String env) {
+        String v = System.getProperty(property);
+        if (v == null || v.isEmpty()) v = System.getenv(env);
+        return v == null || v.isEmpty() ? null : v;
     }
 
     public MassViz initGrid(String runName, int[] dims) {
@@ -101,7 +138,9 @@ public final class MassViz {
      * far more compact than one event per Place, since it never repeats a
      * per-cell index (measured ~5x smaller for a dense full-grid update
      * that changes every tick; see ../../../../../../../benchmark/RESULTS.md).
-     * Places with a null {@link Place#getDebugData()} report as 0.
+     * Places with a null {@link Place#getDebugData()} (or a NaN/infinite one)
+     * report as JSON {@code null}, which the viewer leaves uncolored - not
+     * as 0, which would drag the color scale's minimum down to 0.
      *
      * <p>Graph mode: emits one {@code place_value} scalar overlay per Place
      * (via {@link #reportPlace}), keyed by {@link #vertexIdFor}. Graph
@@ -119,6 +158,7 @@ public final class MassViz {
 
         if (MODE_GRID.equals(mode) && dims != null) {
             double[] values = new double[dims[0] * dims[1]];
+            java.util.Arrays.fill(values, Double.NaN); // sent as null: "no data", not 0
             for (Place p : all) {
                 if (p == null) continue;
                 Number value = p.getDebugData();
@@ -160,6 +200,27 @@ public final class MassViz {
     }
 
     /**
+     * As {@link #declareVertex(String, String, String[], double[])}, plus the
+     * optional inspector fields: {@code group} (vertices sharing one are
+     * colored alike, e.g. a community) and {@code attrs} (flat scalar values
+     * shown when the vertex is selected; NaN/Infinity are sent as null).
+     */
+    public void declareVertex(String id, String name, String[] neighborIds, double[] weights,
+                              String group, java.util.Map<String, ?> attrs) {
+        client.send(VizEventBuilder.vertex(runId, id, name, neighborIds, weights, group, attrs));
+    }
+
+    /**
+     * Ends the initial-state report: call once after the model's starting
+     * state has been sent (before the first tick runs), so a replay's first
+     * frame is that starting state instead of it being folded into step 0's
+     * frame. Emits {@code step -1}, see PROTOCOL.md.
+     */
+    public void endInitialState() {
+        client.send(VizEventBuilder.step(runId, -1));
+    }
+
+    /**
      * Diffs the current agent population against what was last reported and
      * emits agent_spawn/agent_move/agent_remove accordingly, then a step
      * boundary marker - call this once per tick, after {@link #snapshotPlaces}.
@@ -196,6 +257,13 @@ public final class MassViz {
 
     public void spawnAgent(String id, Object at, Integer color, String shape) {
         client.send(VizEventBuilder.agentSpawn(runId, id, at, color, shape));
+        knownAgentIds.add(id);
+    }
+
+    /** As {@link #spawnAgent(String, Object, Integer, String)}, plus a display name and inspector {@code attrs}. */
+    public void spawnAgent(String id, Object at, Integer color, String shape,
+                           String name, java.util.Map<String, ?> attrs) {
+        client.send(VizEventBuilder.agentSpawn(runId, id, at, color, shape, name, attrs));
         knownAgentIds.add(id);
     }
 

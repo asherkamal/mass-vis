@@ -45,8 +45,15 @@ public class GraphDemo {
             for (int i = 0; i < node.neighbors.length; i++) {
                 neighborIds[i] = String.valueOf(node.neighbors[i]);
             }
-            viz.declareVertex(String.valueOf(id), "node-" + id, neighborIds, null);
+            // label + inspector attrs: shown when the vertex is selected in the viewer
+            viz.declareVertex(String.valueOf(id), "node-" + id, neighborIds, null,
+                    null, java.util.Map.of("connections", neighborIds.length));
         }
+
+        // The starting positions, ended with a step -1 marker so a replay's
+        // first frame is the true initial state rather than being folded
+        // into step 0 (see PROTOCOL.md).
+        viz.snapshotAgents(hoppers, -1);
 
         for (int step = 0; step < numSteps; step++) {
             hoppers.callAll(Hopper.hop_, Integer.valueOf(step));

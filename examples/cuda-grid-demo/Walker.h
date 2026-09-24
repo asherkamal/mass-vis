@@ -27,6 +27,7 @@ public:
     enum FUNCTION_ID {
         INIT,  // no arg - derives a stable id from this agent's own getIndex()
         MOVE,  // arg: unsigned int* = current step number
+        SYNC,  // no arg - call AFTER Agents::manageAll(): stages the place the agent really is on
     };
 
     enum ATTR_ID {
@@ -39,4 +40,5 @@ public:
 private:
     __device__ void init();
     __device__ void move(unsigned int *step);
+    __device__ void sync();
 };

@@ -23,19 +23,29 @@ int main(int argc, char *argv[]) {
 
     MASS::init(arguments, 1, 1); // nProc=1: single local process, no SSH out
 
+    // Open the recording before the Places initialize, so their starting
+    // values (reported from HeatCell::init) are captured.
+    massviz::MassViz::instance().openGrid(
+        "cpp-grid-demo.ndjson", "cpp-grid-demo", "C++ Grid Demo", std::vector<int>{WIDTH, HEIGHT});
+
     Places *grid = new Places(1, "HeatCell", nullptr, 0, 2, WIDTH, HEIGHT);
     grid->callAll(HeatCell::init_);
 
     Agents *wanderers = new Agents(2, "Wanderer", nullptr, 0, grid, 4);
     wanderers->callAll(Wanderer::init_);
 
-    massviz::MassViz::instance().openGrid(
-        "cpp-grid-demo.ndjson", "cpp-grid-demo", "C++ Grid Demo", std::vector<int>{WIDTH, HEIGHT});
+    // The true starting state (before any tick), ended with step(-1) so a
+    // replay's first frame shows it instead of folding it into step 0.
+    wanderers->callAll(Wanderer::report_);
+    massviz::MassViz::instance().step(-1);
 
     for (int step = 0; step < NUM_STEPS; step++) {
         grid->callAll(HeatCell::tick_, &step, sizeof(int));
         wanderers->callAll(Wanderer::step_, &step, sizeof(int));
         wanderers->manageAll();
+        // Report positions AFTER manageAll, when migrations have actually
+        // happened (step_ only requested them).
+        wanderers->callAll(Wanderer::report_);
         massviz::MassViz::instance().step(step);
     }
 

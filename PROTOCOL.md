@@ -108,8 +108,8 @@ right after `init`, before any `agent_*` events reference it.
 - `neighbors` — ids of adjacent vertices (edges are implied; the viewer dedupes
   reciprocal pairs when drawing lines).
 - `weights` — optional, parallel array to `neighbors`.
-- `position` — optional explicit `[x,y,z]`; if omitted the viewer lays the vertex
-  out automatically (force-directed) on first sight.
+- `position` — optional explicit `[x,y,z]`; if omitted the viewer places the vertex
+  on a sphere sized to the vertex count.
 
 ### `place_value` (graph mode, optional scalar overlay)
 
@@ -158,6 +158,39 @@ as a progress readout.
 { "type": "step", "step": 42 }
 ```
 
+**Initial state**: a producer that reports the model's starting state (before step 0
+has run) ends it with `{"type":"step","step":-1}`. Without that marker the initial
+events sit before the first `step` and are bundled into the first scrubbable frame,
+so seeking to it shows the state *after* step 0's changes and the true starting state
+is never seen. Each `step` event, including this one, is one replay frame.
+
+## Non-finite numbers
+
+`NaN` and `Infinity` are not valid JSON. Send `null` for any number that is not
+finite (a diverged simulation, an unset debug value); the viewer skips it and keeps
+the cell's last known value. The server also tolerates bare `NaN`/`Infinity` tokens
+on input by turning them into `null`, but producers should not rely on that.
+
+## Optional information fields (graph mode)
+
+These carry the information the viewer's inspector, grouping and search use. All are
+optional and ignored by older viewers.
+
+- `vertex`: `label` (display name; `name` is accepted as a synonym), `group` (string or
+  number - vertices sharing a group get the same color, e.g. a community), `attrs` (flat
+  object of scalar values shown in the inspector, e.g. `{"followers": 120}`).
+- `agent_spawn`: `name` and `attrs`, as above.
+- `agent_update` - change an existing agent's `color`, `name` and/or merge `attrs`
+  without respawning it:
+
+```json
+{ "type": "agent_update", "id": "a12", "attrs": { "state": "infected" }, "color": 15158332 }
+```
+
+- `agent_move.speed` scales the move animation (2 = twice as fast; default 1).
+- Graph mode addresses Places by vertex id (`place_value`); the sparse grid `place`
+  event is ignored in graph mode.
+
 ## Server-side semantics (not part of the wire format, but relied upon by producers)
 
 - The server keeps one authoritative in-memory `RunState` per `runId`, built by
@@ -169,4 +202,18 @@ as a progress readout.
   scene. `snapshot` is a server-to-client-only event; producers never send it.
 - Every event is also appended as one line to `recordings/<runId>.ndjson`. A client
   may request replay of a past `runId` instead of/after live viewing; the server
-  streams the recorded file back, pace-able by `step`.
+  streams the recorded file back, pace-able by `step`. The server flushes its write
+  buffer first, so a recording fetched while a run is still going contains every
+  event received so far.
+- A new `init` for a `runId` that already has a recording starts a fresh file; the
+  previous one is kept as `<runId>.<timestamp>.ndjson` rather than having two runs
+  share one timeline.
+- `GET /recordings/<runId>.ndjson?tail=N` returns roughly the last `N` steps instead of
+  the whole file: a first line `{"type":"snapshot","baseFrame":B,"totalFrames":T,"state":{...}}`
+  (the run's full state after step marker `B`, counting markers from 0), then the
+  events recorded after it. Runs no longer than `N` steps come back whole. This exists
+  because a busy run records hundreds of KB per step (10k vertices + 2k agents measured
+  ~250 KB/step), which is too much to ship to a browser just to pause and look back.
+  A snapshot line is server-to-client only, like the live `snapshot`.
+- A run with no events and no viewers for 10 minutes (`MASS_VIZ_IDLE_MS`) is dropped
+  from server memory; its recording stays listable and replayable.

@@ -17,6 +17,9 @@ void *HeatCell::init(void * /*argument*/) {
     // so a transposed x/y axis would be visibly wrong, not accidentally
     // symmetric-and-passing.
     value_ = 50.0 + 10.0 * std::sin(index[0] * 0.3) * std::cos(index[1] * 0.5);
+    // Report the starting field too (main.cpp opens the recording before
+    // this runs and ends the initial state with step(-1)).
+    massviz::MassViz::instance().reportPlace(index, value_);
     return nullptr;
 }
 

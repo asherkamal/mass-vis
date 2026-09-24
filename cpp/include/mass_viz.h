@@ -25,18 +25,23 @@ namespace massviz {
  * So the only non-invasive hook available is: each Place/Agent subclass
  * reports itself, once per tick, from inside its own callMethod() override -
  * a couple of lines added to callMethod, not a rewrite. See ../README.md for
- * a worked example and exact build/link steps (this header cannot be
- * compiled in the environment that authored it - no CUDA/C++ toolchain with
- * mass_cpp_core's full dependency set (libssh2, NetCDF, ...) was available;
- * verify on your own build of mass_cpp_core).
+ * a worked example and exact build/link steps; it has been built and run
+ * against a real mass_cpp_core (see ../README.md's Status section).
  *
- * Only file-based recording is implemented for this first pass (matching
- * the "or file" option in the mass-viz protocol doc) rather than a
- * hand-rolled WebSocket client, since that could not be tested in the
- * authoring environment either. A recorded run is viewed via the browser's
- * Replay mode, which already exercises the full rendering pipeline
- * (snapshot, scrub, playback) - live streaming is a natural follow-up once
- * this file format is validated against a real run.
+ * Only file-based recording is implemented (matching the "or file" option in
+ * the mass-viz protocol doc) rather than a hand-rolled WebSocket client. A
+ * recorded run is viewed via the browser's Replay mode, or pushed into a
+ * live run with ../../benchmark/push-ndjson.js.
+ *
+ * Report an agent's position from AFTER Agents::manageAll(), not at the
+ * moment it calls migrate(): migrate() only requests a migration, which the
+ * library may not carry out, so a move recorded at request time can put the
+ * visualized agent somewhere it never actually was. See
+ * ../../examples/cpp-grid-demo/Wanderer.cpp (its report_ function, called
+ * after manageAll) for the pattern.
+ *
+ * End the initial-state report (Place values and agent spawns before any
+ * tick has run) with step(-1); see ../../PROTOCOL.md.
  */
 class MassViz {
 public:

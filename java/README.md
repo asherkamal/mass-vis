@@ -65,6 +65,37 @@ viz.declareVertex(id, name, neighborIds, weights); // once per vertex, from your
 overrides forward to `MassViz.getDefault()` automatically. Call
 `MassViz.setDefault(viz)` once at startup if you use these.
 
+**On a multi-node MASS cluster** `setDefault` in your `main()` only reaches
+the driver JVM - MASS worker JVMs never run your startup code, so their
+`VizPlace`/`VizAgent` hooks would find no default and silently do nothing.
+When `setDefault` was never called in a JVM, `getDefault()` instead connects
+on first use from the `massviz.url` system property (or `MASSVIZ_URL`
+environment variable), reporting into the run named by `massviz.runId` /
+`MASSVIZ_RUN_ID` (default `mass-run`), in the mode given by `massviz.mode` /
+`MASSVIZ_MODE` (`grid`, the default, or `graph`). Such an auto-connected
+instance never sends `init` - the driver's `initGrid`/`initGraph` does. With
+none of these set the hooks stay no-ops. Verified for a single JVM by
+starting it with only `-Dmassviz.url=ws://localhost:8080
+-Dmassviz.runId=...` and checking the server received its events; a real
+multi-node run was not tried.
+
+**Information for the viewer's inspector** (all optional):
+`declareVertex(id, name, neighborIds, weights, group, attrs)` (vertices
+sharing a `group` get one color; `attrs` is a flat map shown when the vertex
+is selected) and `spawnAgent(id, at, color, shape, name, attrs)`.
+
+**Initial state**: after reporting the model's starting state and before the
+first tick, call `viz.endInitialState()` (or `viz.snapshotAgents(agents, -1)`,
+which emits the same `step -1` marker) so a replay's first frame is that
+starting state; see `../PROTOCOL.md`.
+
+**Non-finite numbers**: NaN and Infinity - in a Place's debug data, weights
+or attrs - are sent as JSON `null`. Gson's `JsonObject.toString()` writes in
+lenient mode and would otherwise emit a bare `NaN`, which is not valid JSON
+(the server would drop the frame; a recording containing it would fail to
+load). A Place whose debug data is `null` also reports as `null` in a grid
+snapshot rather than `0`, which used to drag the color scale's minimum down.
+
 ## Status: actually built and run, not just signature-checked
 
 Everything below was verified in this environment (Maven wasn't originally

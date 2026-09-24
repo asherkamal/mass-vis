@@ -39,14 +39,9 @@ MASS_INC="-I$MASS_CUDA_DIR/src"
 # macro fixed it).
 BOOST_INC="-isystem $BOOST_DIR/include -DBOOST_LOG_DYN_LINK"
 BOOST_LIB="-L$BOOST_DIR/lib -lboost_log -lboost_log_setup -lboost_thread -lboost_filesystem -lpthread"
-# 1. mass_viz_cuda.cpp is the one translation unit that includes Places.h
-#    (see the forward-declaration comment in mass_viz_cuda.h), so it alone
-#    needs mass_cuda_core and Boost include paths. Despite containing no
-#    device code of its own, it must still be compiled with nvcc, not a
-#    plain C++ compiler: Places.h pulls in DeviceConfig.h, which contains
-#    real __global__ kernels and <<<...>>> launch syntax that only nvcc's
-#    frontend parses - g++ fails outright on that header (confirmed).
-nvcc $NVCC_FLAGS -x cu -c "$VIZ_DIR/mass_viz_cuda.cpp" $MASS_INC $BOOST_INC -o mass_viz_cuda.o
+# 1. The mass-viz adapter is plain C++ (it includes no mass_cuda_core header),
+#    so it needs neither nvcc nor the mass_cuda_core/Boost include paths.
+g++ -std=c++14 -c "$VIZ_DIR/mass_viz_cuda.cpp" -I"$VIZ_DIR" -o mass_viz_cuda.o
 
 # 2. Place/Agent subclasses and the driver - all real device (.cu) code,
 #    built with nvcc against mass_cuda_core headers.

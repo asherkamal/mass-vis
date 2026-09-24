@@ -9,6 +9,7 @@ void *Wanderer::callMethod(int functionId, void *argument) {
     switch (functionId) {
         case init_: return init(argument);
         case step_: return step(argument);
+        case report_: return report(argument);
     }
     return nullptr;
 }
@@ -20,13 +21,20 @@ void *Wanderer::init(void * /*argument*/) {
     return nullptr;
 }
 
-void *Wanderer::step(void *argument) {
-    int tick = *static_cast<int *>(argument);
+// Called by the driver after Agents::manageAll(), when `index` is where the
+// agent really is: the first call reports the spawn, later calls the move.
+void *Wanderer::report(void * /*argument*/) {
     if (!spawned_) {
         massviz::MassViz::instance().reportAgentSpawnGrid(id_, index);
         spawned_ = true;
-        return nullptr;
+    } else {
+        massviz::MassViz::instance().reportAgentMoveGrid(id_, index);
     }
+    return nullptr;
+}
+
+void *Wanderer::step(void *argument) {
+    int tick = *static_cast<int *>(argument);
 
     // Deterministic pseudo-random walk (seeded by agentId + tick) so the
     // recording is reproducible run-to-run for comparison.
@@ -39,9 +47,8 @@ void *Wanderer::step(void *argument) {
         case 3: dest[0] -= 1; break; // W
     }
     if (dest[0] >= 0 && dest[0] < place->size[0] && dest[1] >= 0 && dest[1] < place->size[1]) {
-        if (migrate(dest)) {
-            massviz::MassViz::instance().reportAgentMoveGrid(id_, dest);
-        }
+        // Only a request: the move is reported from report_, after manageAll.
+        migrate(dest);
     }
     return nullptr;
 }

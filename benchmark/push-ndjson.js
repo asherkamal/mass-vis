@@ -24,19 +24,11 @@
 // recorded state on the server. Defaults to "<file basename>-live".
 const fs = require('fs');
 const path = require('path');
-const http = require('http');
 const readline = require('readline');
+const { parseArgs, postJson } = require('./lib');
+const { parseJsonTolerant } = require('../server/public/src/json.js');
 
-const positional = process.argv.slice(2).filter((a) => !a.startsWith('--'));
-const flags = Object.fromEntries(
-  process.argv
-    .slice(2)
-    .filter((a) => a.startsWith('--'))
-    .map((a) => {
-      const [k, v] = a.replace(/^--/, '').split('=');
-      return [k, v === undefined ? true : v];
-    })
-);
+const { positional, flags } = parseArgs();
 
 const file = positional[0];
 if (!file) {
@@ -53,29 +45,9 @@ const serverUrl = new URL(flags.server || 'http://localhost:8080');
 const rewriteId = flags['no-rewrite-id'] !== true;
 const runId = flags.runId || `${path.basename(file, '.ndjson')}-live`;
 
-function post(body) {
-  return new Promise((resolve, reject) => {
-    const data = Buffer.from(JSON.stringify(body));
-    const req = http.request(
-      {
-        hostname: serverUrl.hostname,
-        port: serverUrl.port || 80,
-        path: '/event',
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Content-Length': data.length },
-      },
-      (res) => {
-        let out = '';
-        res.on('data', (c) => (out += c));
-        res.on('end', () => {
-          if (res.statusCode !== 200) return reject(new Error(`HTTP ${res.statusCode}: ${out}`));
-          resolve(out);
-        });
-      }
-    );
-    req.on('error', reject);
-    req.end(data);
-  });
+async function post(body) {
+  const { status, text } = await postJson({ hostname: serverUrl.hostname, port: serverUrl.port || 80, body });
+  if (status !== 200) throw new Error(`HTTP ${status}: ${text}`);
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -104,7 +76,7 @@ async function main() {
     if (!trimmed) continue;
     let event;
     try {
-      event = JSON.parse(trimmed);
+      event = parseJsonTolerant(trimmed); // tolerates bare NaN/Infinity from older adapters
     } catch (e) {
       // A malformed line is the adapter's bug, not a reason to abort the
       // whole push - report it and keep going so the rest still renders.

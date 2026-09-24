@@ -55,6 +55,15 @@ renderer that handles both spatial grids and graphs.
   `examples/flamegpu2-grid-demo/`** - runnable demo apps exercising the
   C++, CUDA, and FLAME GPU2 adapters end-to-end against their real
   libraries, matching the Java demos below.
+- **`benchmark/gen-social-graph.js`** - live generator for a large
+  social-network-style graph (10,000 users, 2,000 walking agents by
+  default); see "Large social-network graph" under Testing the viewer.
+- **`benchmark/gen-graph-load.js`, `gen-live-grid.js`, `gen-grid-recording.js`,
+  `gen-graph-recording.js`** - the other load generators, described under
+  Testing the viewer; **`benchmark/lib.js`** holds the argument parsing and
+  HTTP helper they share, and **`benchmark/RESULTS.md`** the measured
+  comparison against Plotly and mass-graphosaurus.
+- **`tests/`** - the end-to-end test suite; see "Running the tests" below.
 - **`benchmark/push-ndjson.js`** - replays a recorded `.ndjson` file into a
   *live* run on a running server, at a controllable pace. The C++, CUDA,
   and FLAME GPU2 adapters are all file-only writers with no WebSocket
@@ -85,8 +94,8 @@ rather than repeating it here.
 | Piece | Status |
 |---|---|
 | `server/` (protocol, state, snapshot-on-join, recording) | Built and tested here - see `server/server.js`'s test run (WebSocket protocol test covering grid mode, graph mode, late-join snapshot correctness, and NDJSON recording, all passing) |
-| `server/public/` (browser viewer) | Built here; syntax-checked (`node --check` on every file); **not** visually verified in a real browser - browser automation was declined for this session. Open `http://localhost:8080` yourself to confirm rendering. |
-| `java/` adapter + examples | **Actually compiled and run**, not just signature-checked: `mass_java_core` and `mass-viz-java` both `mvn install` cleanly, and both example apps run end-to-end against a live `server/` instance producing correct events (verified by reading the recorded `.ndjson` back) - see `java/README.md`. |
+| `server/public/` (browser viewer) | Built here; its logic (graph renderer against a stubbed three.js scene, replay/keyframe seeking, windowed replay, corrupt-recording handling) is tested headlessly in Node - see `tests/`. **Not** visually verified in a real browser - browser automation was declined - so how it looks, hover/click feel and the real frame rate are unchecked. Open `http://localhost:8080` yourself to confirm rendering. |
+| `java/` adapter + examples | **Actually compiled and run**, not just signature-checked: `mass_java_core` and `mass-viz-java` both `mvn install` cleanly, and both example apps ran end-to-end against a live `server/` instance producing correct events (verified by reading the recorded `.ndjson` back) - see `java/README.md`. Later changes to the adapter (NaN handling, group/attrs, worker-JVM auto-connect, `endInitialState`) were checked by compiling with `javac` and running unit tests plus a live auto-connect; the two example apps were not re-run (they hang in `MASS.init` outside the Maven setup). |
 | `cpp/` adapter + `examples/cpp-grid-demo/` | **Actually compiled and run against real `mass_cpp_core`** (built from source in WSL Ubuntu 24.04): a real `HeatCell`/`Wanderer` Place/Agent pair, `dlopen`'d as their own shared libraries the way `mass_cpp_core` actually loads them, ran a full 40-tick simulation end to end and round-tripped through a live server with a correct late-join snapshot. Caught and fixed a real bug along the way - the self-reporting `MassViz` singleton silently discarding every value when compiled into more than one `.so` - see `cpp/README.md`. |
 | `cuda/` adapter + `examples/cuda-grid-demo/` | **Actually compiled and run against real `mass_cuda_core`, on a real GPU** (RTX 3080, via WSL): a real `HeatCell`/`Walker` Place/Agent pair with 4-neighbor grid connectivity and host-driven diffusion, verified against a live server with a correct late-join snapshot. Building `mass_cuda_core` itself from source surfaced three real upstream bugs (a missing Thrust include, a hardcoded 2-GPU assumption, a missing Boost.Log macro) and the demo caught one real bug of its own (custom attributes need a second `finalizeAttributes()` call) - see `cuda/README.md` for all of it, including the Boost.Log linking story that ate most of this phase's time. |
 | `flamegpu2/` adapter + `examples/flamegpu2-grid-demo/` | **Actually run against a real `pyflamegpu` install, on a real GPU**: a `Cell` population running real diffusion plus a `Walker` population doing a real device-side random walk, verified against a live server with a correct late-join snapshot. Getting `pyflamegpu` importable on Windows without a full CUDA Toolkit install took five extra `pip` packages and a merged-include-directory trick (now wrapped in `flamegpu2/_pyflamegpu_env.py`) - see `flamegpu2/README.md`, which also covers a real gotcha this caught (FLAME GPU2's built-in agent ids read `0` until the first step actually runs). |
@@ -101,18 +110,50 @@ node server.js
 ```
 
 Neither the viewer nor the server needs a real MASS build to test - see
-below. That's a much cheaper way to test the server/viewer than standing up
+"Testing the viewer" below (replay recordings, live generators, and the
+large social-network graph). That's a much cheaper way to test the server/viewer than standing up
 a full MASS Java/C++/CUDA build, which is only worth doing when you
 specifically need to verify an adapter's own code against the real library
 (see `java/README.md` for what that took and what it caught).
 
+## Running the tests
+
+`tests/` is an automated suite that runs real processes against each other -
+no mocks of the server, the WebSocket, or the generators:
+
+```bash
+cd server && npm install      # once
+cd ../tests
+npm test                       # about 15 s
+MASS_VIZ_TEST_WSL=1 npm test   # also builds and runs the real C++/CUDA/FLAME GPU2 demos (about 1 min)
+```
+
+It uses only Node's built-in test runner (Node 22.12 or newer). What it covers:
+
+| File | What it checks |
+|---|---|
+| `server.test.js` | a real server process over HTTP and WebSocket: static files, bad input, NaN handling, late-join snapshots (graph and grid), recording flush, re-init archiving, windowed replay (`?tail=N`) from memory and rebuilt from the file after a restart |
+| `replay.test.js` | the viewer's data layer: run-state reducer, tolerant JSON, frames and keyframes, seeking to any frame in any order giving the same state as replaying in order, windowed loads, corrupt and step-less recordings, the committed demo recordings |
+| `renderer.test.js` | the graph and grid renderers headlessly (real three.js, no WebGL): layout, instancing bookkeeping, agents, picking, selection dimming, search, inspector data |
+| `generators.test.js` | each load generator run against a real server with its output verified (`gen-social-graph.js`: symmetric graph, communities, hubs, every agent move follows an edge, visit counts add up); a viewer joining mid-run gets a snapshot equal to the recording replayed to the same step; `push-ndjson.js` |
+| `adapters.test.js` | the Python adapter (fakes, no GPU) and the Java adapter (compiled with `javac` against the built `mass_java_core`, plus a JVM configured only by `-Dmassviz.url` connecting for real); with `MASS_VIZ_TEST_WSL=1`, the C++ and CUDA demos built and run against the real libraries and the FLAME GPU2 demo on the GPU, with every recorded agent move checked |
+
+Tests that need a JDK, Python or WSL are skipped (and say so) when they are
+missing. The suite does **not** cover what a browser does: WebGL rendering,
+CSS, the DOM in `app.js`, and real frame rates. Those still need a person
+looking at http://localhost:8080.
+
 ## Testing the viewer
 
-Two independent things to check: **replay** (loading a recorded run and
-scrubbing/playing through it) and **live** (a run being fed in real time,
-including a second viewer joining mid-run). Neither needs a real MASS
-build - both go entirely through the server's HTTP/WebSocket API, which is
-exactly how this viewer was itself verified in this session.
+Three things to check: **replay** (loading a recorded run and
+scrubbing/playing through it), **live** (a run being fed in real time,
+including a second viewer joining mid-run), and **a large, realistic graph**
+(the 10,000-node social network below, which also exercises pausing a live
+run, replaying part of it and returning to live). None needs a real MASS
+build - all go entirely through the server's HTTP/WebSocket API.
+
+Start the server first for every scenario (`cd server`, `npm install` once,
+then `node server.js`) and open http://localhost:8080.
 
 ### Replay mode
 
@@ -183,10 +224,97 @@ in the browser: mode = **Live**, pick the run, **Connect**.
   rather than in replay, since replay can never exhibit a "joined with no
   state" failure.
 
+### Large social-network graph (live, with pause / replay / go live)
+
+`benchmark/gen-social-graph.js` builds a social-network-style graph and
+keeps agents walking along its edges. Users are split into communities of
+skewed sizes; inside a community new users link to existing members by
+preferential attachment (so a few hubs emerge), with a small share of links
+across communities. Every vertex has a label (`user-1234`), a group (its
+community) and a follower count; agents have a name and a topic; each node's
+`place_value` is a running visit count. It sends the `init`, the vertices,
+the agents and a `step -1` initial-state marker itself, so there is nothing
+to send by hand.
+
+```bash
+# defaults: 10,000 users, 2,000 agents, ~3 links per new user, runs until Ctrl+C
+node benchmark/gen-social-graph.js
+# a smaller, quicker variant that stops on its own after 60 s
+node benchmark/gen-social-graph.js --nodes=1000 --agents=200 --duration=60000
+```
+
+| Flag | Default | Meaning |
+|---|---|---|
+| `--nodes` | 10000 | number of users (vertices) |
+| `--agents` | 2000 | number of walking agents |
+| `--links` | 3 | links each new user makes |
+| `--communities` | nodes / 250 (min 4) | number of communities |
+| `--tick` | 300 | ms between agent moves |
+| `--duration` | 0 | ms to run; `0` = until Ctrl+C |
+| `--run` | `social` | run id shown in the dropdown |
+| `--port` | 8080 | server port |
+
+Start it, wait a few seconds while it posts the graph, then in the browser
+set mode to **Live**, pick `social` (it only appears once the server has
+seen an event for it; the list refreshes every 5 s) and click **Connect**.
+
+**What to check:**
+- **Readable**: nodes are colored by community (legend bottom-left) and
+  sized by connections, so hubs stand out; it should read as distinct
+  clusters, not a solid ball. Edges are faint by default (`edges`
+  dropdown: off / faint / full).
+- **Information**: hover a node to see a tooltip and just that node's edges;
+  click it to select it (everything except its neighbors dims) and open the
+  inspector (id, label, group, connections, attributes, neighbor list,
+  agents currently on it). Click an agent for its name, topic, current
+  location and move count. Links in the inspector jump to that node or
+  agent. The search box (Enter) finds a node or agent by id or name, e.g.
+  `user-42` or `agent-7`. Set `color` to `value` to color nodes by visit
+  count instead of community (the gradient legend appears).
+- **Frame rate**: read the FPS figure in the top bar with everything
+  running. (It has not been measured on real hardware yet.)
+- **Pause and replay a live run**: while connected live, click **Pause**.
+  The view freezes on the recorded history so far and the step slider
+  appears; drag it back, or hit **Play**. The run keeps being recorded on
+  the server while you look. Click **Go live** to return to the current
+  state, or **Refresh** to load steps recorded since you paused. **End
+  live** instead keeps the run as a plain replay with no way back.
+- **How much history loads**: a run this size records about 250 KB per step
+  (roughly 50 MB a minute), so replay loads only the last 100 steps by
+  default; the selector next to the slider offers 500 or all steps. The
+  step label reads e.g. `step 812 / 812 (last 100 loaded)`. The server does
+  this by answering `GET /recordings/<id>.ndjson?tail=N` with a state
+  snapshot plus only the events after it.
+- **Late join** works as for any live run: a second tab connecting
+  mid-run shows the full current state immediately.
+
+**Stopping and disk space**: press Ctrl+C in the terminal running the
+script (or, from PowerShell, stop the `node` process running it). The
+recording stays in `server/recordings/social.ndjson` and, at the default
+size, grows to hundreds of MB within minutes - delete it when you are done.
+Starting the script again does not append to it: the server keeps the
+previous file as `social.<timestamp>.ndjson` and starts a new one, so old
+runs accumulate until you delete them. An idle run leaves server memory
+after 10 minutes (`MASS_VIZ_IDLE_MS`) but stays replayable from its file.
+
+**Verification status**: the renderer, replay/keyframe logic and server
+windowing were tested headlessly in Node (a stubbed three.js scene, picking,
+selection, seeking, corrupt and no-step recordings, windowed vs. full replay
+giving the same end state). Nothing was checked in a real browser, so how it
+looks, how hover and click feel, and the actual frame rate at 10,000 nodes
+and 2,000 agents are unmeasured.
+
 **On PowerShell**: `curl` is aliased to `Invoke-WebRequest`, which doesn't
 accept `-H`/`-d` - call `curl.exe` explicitly instead if you're posting
-events by hand rather than using the generator scripts above. In Git Bash,
-plain `curl` already works fine (no alias there).
+events by hand rather than using the generator scripts above. Windows
+PowerShell 5.1 also strips the double quotes inside an inline JSON body, so
+escape them with a backslash, on one line:
+
+```powershell
+curl.exe -X POST http://localhost:8080/event -H "Content-Type: application/json" -d '{\"v\":1,\"runId\":\"demo\",\"type\":\"init\",\"mode\":\"graph\",\"runName\":\"Demo\"}'
+```
+
+In Git Bash, plain `curl` already works fine (no alias, no escaping needed).
 
 **On hand-typed large payloads**: don't. A ~1KB single-line JSON body,
 pasted through an interactive terminal (even via a heredoc), once arrived

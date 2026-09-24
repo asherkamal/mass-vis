@@ -13,10 +13,17 @@ function lerp(a, b, t) {
 }
 
 export class ColorScale {
-  constructor(min = 0, max = 1) {
+  // With no arguments the range starts empty (min > max) and is defined by
+  // the first observed values, so a field spanning 20..95 gets a 20..95
+  // legend rather than one forced to include 0 and 1.
+  constructor(min = Infinity, max = -Infinity) {
     this.min = min;
     this.max = max;
     this.locked = false; // true once an explicit place_range event sets bounds
+  }
+
+  get isSet() {
+    return this.min <= this.max;
   }
 
   observe(value) {
@@ -32,7 +39,7 @@ export class ColorScale {
   }
 
   colorFor(value) {
-    const span = this.max - this.min;
+    const span = this.isSet ? this.max - this.min : 0;
     const t = span > 1e-9 ? Math.min(1, Math.max(0, (value - this.min) / span)) : 0.5;
 
     let lo = STOPS[0];

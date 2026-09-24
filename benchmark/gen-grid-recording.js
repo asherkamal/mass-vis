@@ -12,17 +12,9 @@
 // Usage: node gen-grid-recording.js <width> <height> <steps> [runId] [--format=place_grid|place]
 const fs = require('fs');
 const path = require('path');
+const { parseArgs } = require('./lib');
 
-const positional = process.argv.slice(2).filter((a) => !a.startsWith('--'));
-const flags = Object.fromEntries(
-  process.argv
-    .slice(2)
-    .filter((a) => a.startsWith('--'))
-    .map((a) => {
-      const [k, v] = a.replace(/^--/, '').split('=');
-      return [k, v];
-    })
-);
+const { positional, flags } = parseArgs();
 
 const [widthArg, heightArg, stepsArg, runIdArg] = positional;
 const W = Number(widthArg || 100);
@@ -36,7 +28,7 @@ if (!['place_grid', 'place'].includes(format)) {
   process.exit(1);
 }
 
-const RECORDINGS_DIR = path.join(__dirname, '..', 'server', 'recordings');
+const RECORDINGS_DIR = process.env.MASS_VIZ_RECORDINGS_DIR || path.join(__dirname, '..', 'server', 'recordings');
 const outFile = path.join(RECORDINGS_DIR, `${runId}.ndjson`);
 
 function line(obj) {

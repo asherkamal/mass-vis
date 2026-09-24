@@ -36,6 +36,11 @@ public class GridDemo {
                 .connect("ws://localhost:8080", "java-grid-demo")
                 .initGrid("Java Grid Demo", new int[]{width, height});
 
+        // The starting state, ended with a step -1 marker (snapshotAgents emits it)
+        // so a replay's first frame is the true initial state (see PROTOCOL.md).
+        viz.snapshotPlaces(grid, -1);
+        viz.snapshotAgents(wanderers, -1);
+
         for (int step = 0; step < numSteps; step++) {
             grid.callAll(HeatCell.tick_, Integer.valueOf(step));
             wanderers.callAll(Wanderer.step_, Integer.valueOf(step));

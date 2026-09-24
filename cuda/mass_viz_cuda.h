@@ -8,15 +8,10 @@
 #include <mutex>
 #include <unordered_set>
 
-// Deliberately NOT #include "Places.h"/"Agents.h" here, only a forward
-// declaration: mass_cuda_core's Places.h transitively includes its Logger.h,
-// which pulls in <boost/log/core.hpp>, <boost/log/trivial.hpp>,
-// <boost/log/expressions.hpp> and <boost/format.hpp>. Including it here would
-// impose Boost headers (and linking boost_log/boost_log_setup/pthread) on
-// every translation unit that merely wants to *call* this adapter. Only
-// mass_viz_cuda.cpp actually needs the definition, for getIndexVector(), so
-// it includes Places.h itself. `mass::Places*` appears solely as a pointer
-// parameter below, which an incomplete type satisfies.
+// Only a forward declaration: reportAgents() takes a mass::Places* for source
+// compatibility but does not use it (coordinates are decoded from the dims
+// given to openGrid), so this adapter needs no mass_cuda_core header - and
+// none of the Boost.Log/nvcc machinery Places.h drags in - to build or call.
 namespace mass {
 class Places;
 }
@@ -32,7 +27,7 @@ class Places;
  * Unlike the C++ cluster adapter (../cpp), this one polls from the host
  * driver loop rather than self-reporting from inside callMethod, because
  * mass::Places/mass::Agents expose real public host-side accessors -
- * Places::downloadAttributes<T>(tag, length), Places::getIndexVector(i),
+ * Places::downloadAttributes<T>(tag, length),
  * Places::getNumPlaces(), Agents::downloadAttributes<T>(tag, length),
  * Agents::getNumAgents() (all confirmed by reading Place.h/Places.h/
  * Agents.h directly) - the same shape of hook mass_java_core's
@@ -42,13 +37,23 @@ class Places;
  * You control what "value" and agent position mean by choosing which
  * attribute tag(s) to download and pass in - this header does not assume
  * any predefined attribute layout beyond what MASS CUDA itself guarantees
- * (Places::getIndexVector for place coordinates).
+ * (row-major place indices, first dimension fastest).
  *
- * Not compiled/linked in the environment that authored it (no CUDA
- * toolchain was available there) - build alongside the rest of your
- * application with nvcc, using mass_cuda_core's own include/lib paths
- * (see ../cpp/README.md's C++ adapter README for the analogous C++ story;
- * see this directory's README.md for build notes specific to this file).
+ * This adapter is plain C++: it includes no mass_cuda_core header, so it
+ * builds with g++ and pulls in no CUDA or Boost. It has been compiled and run
+ * against a real mass_cuda_core on a real GPU (see the README's Status
+ * section).
+ *
+ * Two usage rules that keep the recording faithful:
+ *  - Stage the position you pass to reportAgents() from AFTER
+ *    Agents::manageAll(), not at the moment an agent calls migrate():
+ *    migrate() only requests a migration, and manageAll() may not carry it
+ *    out (e.g. an occupied destination), so a position recorded at request
+ *    time can differ from where the agent really is. See
+ *    ../examples/cuda-grid-demo/Walker.cu (its SYNC function, run after
+ *    manageAll) for the pattern.
+ *  - End the initial-state report (Place values and agent positions before
+ *    any step has run) with step(-1), see ../PROTOCOL.md.
  */
 namespace massviz {
 
@@ -67,15 +72,17 @@ public:
     // per-cell iteration or coordinate lookup needed. This emits a single
     // place_grid event instead of one place event per cell - measured
     // ~5x smaller for a dense full-grid update that changes every tick
-    // (see ../benchmark/RESULTS.md); this was in fact the exact workload
-    // (a CUDA Heat2D-style grid) that benchmark was modeling.
+    // (see ../benchmark/RESULTS.md).
     void reportPlaces(const double* values, size_t numPlaces);
 
     // Call once per tick: `agentPlaceIndex` and `agentId` must each have
     // `numAgents` entries (e.g. from Agents::downloadAttributes<T>() on
     // whatever attribute tags your app uses to track an agent's current
-    // Place row-major index and identifier). `places` is used to convert
-    // each agent's place index into a grid coordinate via getIndexVector.
+    // Place row-major index and identifier). Each place index is converted
+    // to a grid coordinate from the dims given to openGrid (first dimension
+    // fastest, matching place_grid's order; see coordForIndex in the .cpp for
+    // why Places::getIndexVector is not used). `places` is unused - it stays
+    // so existing callers keep compiling - and may be nullptr.
     void reportAgents(mass::Places* places, const int* agentPlaceIndex,
                        const long long* agentId, int numAgents);
 
@@ -87,7 +94,10 @@ private:
     void writeLine(const std::string& json);
     static std::string escape(const std::string& s);
     static std::string intVectorToJson(const std::vector<int>& values);
+    // See the definition for why this doesn't just call Places::getIndexVector.
+    std::vector<int> coordForIndex(int index) const;
 
+    std::vector<int> dims_;
     std::ofstream out_;
     std::string runId_;
     std::mutex mutex_;
@@ -95,8 +105,7 @@ private:
 
     // Tracks which agent ids were reported last call, so spawn vs move can
     // be inferred the same way the Java adapter's snapshotAgents does.
-    // A set rather than a vector: this is membership-tested once per agent
-    // per tick, which was a linear scan (O(agents^2) per tick) before.
+    // A set, since it is membership-tested once per agent per tick.
     std::unordered_set<long long> knownAgentIds_;
 };
 

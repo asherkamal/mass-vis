@@ -1,11 +1,5 @@
 #include "mass_viz_cuda.h"
 
-// The real definition is needed here (and only here) for
-// Places::getIndexVector - see the forward declaration in the header for why
-// it is not included there. This is the one translation unit that needs
-// mass_cuda_core's include path and Boost's on its command line.
-#include "Places.h"
-
 #include <chrono>
 #include <cmath>
 #include <iomanip>
@@ -105,6 +99,7 @@ void MassVizCuda::openGrid(const std::string& filePath, const std::string& runId
         out_.open(filePath, std::ios::out | std::ios::trunc);
         runId_ = runId;
         open_ = out_.is_open();
+        dims_ = dims;
         knownAgentIds_.clear();
     }
 
@@ -122,7 +117,26 @@ void MassVizCuda::reportPlaces(const double* values, size_t numPlaces) {
     writeLine(os.str());
 }
 
-void MassVizCuda::reportAgents(mass::Places* places, const int* agentPlaceIndex,
+// A place index -> grid coordinate, with the FIRST dimension varying fastest
+// (x = index % width, y = index / width). That is the order mass_cuda_core
+// itself lays places out in (its relative-neighbor offsets step x by 1 and y
+// by width), the order downloadAttributes returns them in, and the protocol's
+// place_grid order - so agents land on the same cell as the values around them.
+//
+// Places::getIndexVector is deliberately NOT used: it decodes with the LAST
+// dimension fastest, which only agrees on square grids. On e.g. a 16x10 grid it
+// draws every agent in the wrong cell (measured: moves of "distance 7" for
+// agents that only ever step to a neighbor).
+std::vector<int> MassVizCuda::coordForIndex(int index) const {
+    std::vector<int> coord(dims_.size());
+    for (size_t d = 0; d < dims_.size(); d++) {
+        coord[d] = dims_[d] > 0 ? index % dims_[d] : 0;
+        index = dims_[d] > 0 ? index / dims_[d] : index;
+    }
+    return coord;
+}
+
+void MassVizCuda::reportAgents(mass::Places* /*places*/, const int* agentPlaceIndex,
                                 const long long* agentId, int numAgents) {
     std::unordered_set<long long> seen;
     seen.reserve(static_cast<size_t>(numAgents));
@@ -130,7 +144,7 @@ void MassVizCuda::reportAgents(mass::Places* places, const int* agentPlaceIndex,
     for (int i = 0; i < numAgents; i++) {
         long long id = agentId[i];
         seen.insert(id);
-        std::vector<int> coord = places->getIndexVector(agentPlaceIndex[i]);
+        std::vector<int> coord = coordForIndex(agentPlaceIndex[i]);
         bool known = knownAgentIds_.count(id) != 0;
 
         std::ostringstream os;

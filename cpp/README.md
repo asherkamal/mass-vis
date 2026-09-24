@@ -78,6 +78,20 @@ exists process-wide - see "Build" below and `examples/cpp-grid-demo/compile.sh`
 for the working link order. The old single-translation-unit advice is
 removed from this README because it reproduces the bug.
 
+### Report agent positions after `manageAll()`, and end the initial state with `step(-1)`
+
+`Agent::migrate()` only *requests* a migration, and the library may not carry
+it out, so `examples/cpp-grid-demo/Wanderer.cpp` no longer calls
+`reportAgentMoveGrid` from the same `callMethod` that requests the move. A
+separate `report_` function, which the driver calls via `callAll` **after**
+`manageAll()`, reports the agent's real `index` (the first call reports the
+spawn). The demo also reports the starting Place values and agent positions
+before the first tick and ends them with `step(-1)`, so a replay's first
+frame is the true starting state (see `../PROTOCOL.md`). Grid cells nobody
+reports stay "no data" (sent as `null`) instead of reading as `0`, which used
+to pull the color scale's minimum down. Re-verified against the real
+`mass_cpp_core` in WSL: all 158 recorded moves are to adjacent cells.
+
 ## Building mass_cpp_core on Windows
 
 **MSVC cannot build `mass_cpp_core`** - confirmed by reading its sources:

@@ -15,7 +15,7 @@ inside the object itself.
 `mass_cuda_core` is the opposite: `Place`/`Agent` live on the GPU and are
 only reachable through `__device__` methods, so the host-side API is built
 entirely around bulk attribute download instead - `mass::Places::
-downloadAttributes<T>(tag, length)`, `mass::Places::getIndexVector(i)`,
+downloadAttributes<T>(tag, length)`,
 `mass::Places::getNumPlaces()`, and the `mass::Agents` equivalents (all
 confirmed public host methods by reading `Place.h`/`Places.h`/`Agents.h`
 directly). So this adapter polls from the host driver loop, like the Java
@@ -87,8 +87,9 @@ whether `BOOST_LOG_DYN_LINK` is defined at the point they're included, and
 `b2 install`'s shared-library build of Boost.Log expects that macro from
 every consumer. **Every translation unit that includes anything reaching
 `Logger.h` needs `-DBOOST_LOG_DYN_LINK`** - both `mass_cuda_core`'s own
-build (its Makefile didn't have this - see bug 3 above) and this adapter's
-`compile.sh`, which now sets it via `BOOST_INC`.
+build (its Makefile didn't have this - see bug 3 above) and the demo's
+`compile.sh`, which sets it via `BOOST_INC` for the `.cu` files that include
+`Places.h` (the adapter itself no longer does).
 
 ### -rdc=true device linking needs a specific two-step recipe
 
@@ -125,6 +126,37 @@ for an entirely different Agents collection two steps later).
 `compute-sanitizer --tool memcheck` was needed to trace the real origin;
 without it, the error message's file/line is actively misleading. See
 `examples/cuda-grid-demo/main.cu`'s comment at the `setAttribute` calls.
+
+### Two more real findings, from checking the recorded agent paths
+
+Validating that every recorded agent move is to an adjacent cell (rather
+than only that the file parses) found:
+
+- **`Places::getIndexVector` decodes with the last dimension fastest, but
+  mass_cuda_core lays places out with the first dimension fastest** (its
+  relative-neighbor offsets step x by 1 and y by width, and
+  `downloadAttributes` returns them in that order). The two only agree on
+  square grids. The demo's deliberately non-square 16x10 grid exposed it:
+  the old adapter drew agents in the wrong cell, and 122 of 200 recorded
+  moves were "jumps" of several cells for agents that only ever step to a
+  neighbor. `MassVizCuda::reportAgents` now decodes place indices itself
+  from the dims given to `openGrid` (`x = i % width`, `y = i / width`);
+  the same run then had 19 such moves.
+- **Those 19 are real: mass_cuda_core wraps neighbors across row edges.**
+  West of `(0, y)` is computed as index-1, which is `(width-1, y-1)`, so
+  the demo's walker 0 really does hop between `(0,1)` and `(15,0)`. That is
+  the simulation's own behavior (heat diffusion in the demo uses the same
+  neighbor table), now shown faithfully. Not fixed here - it is upstream.
+
+**Report an agent's position from after `manageAll()`.** `Agent::migrate()`
+only requests a migration; `manageAll()` resolves conflicts and may decline
+it. `examples/cuda-grid-demo/Walker.cu` therefore no longer stages its
+`PLACE_IDX` attribute from the neighbor it asked for; a `SYNC` function,
+called after `manageAll()`, stages it from `getPlace()`, which is then the
+agent's real place.
+
+**End the initial state with `step(-1)`** (see `../PROTOCOL.md`) so a
+replay's first frame is the true starting state.
 
 ### Known unresolved: mass_cuda_core's own `make test` (not blocking)
 
@@ -183,7 +215,7 @@ make sure the `dims` passed to `openGrid` matches the axis order your
 
 You choose what "value" and "agent position" mean, by picking which
 attribute tag(s) to download - this header doesn't assume a predefined
-attribute layout beyond `getIndexVector` for place coordinates.
+attribute layout beyond row-major place indices (first dimension fastest).
 
 **Before any of this works**: every custom attribute (`TEMPERATURE_TAG`,
 `AGENT_PLACE_INDEX_TAG`, `AGENT_ID_TAG` below) needs its own
@@ -228,13 +260,12 @@ linking" above for why, and **`examples/cuda-grid-demo/compile.sh` for the
 complete, actually-working build** (real invocations, not illustrative
 pseudocode). In short:
 
-1. `mass_viz_cuda.cpp` (the one file that includes `Places.h` - see the
-   forward-declaration note at the top of `mass_viz_cuda.h` for why callers
-   don't need to) must be compiled with **`nvcc`**, not a plain C++
-   compiler - `Places.h` pulls in `DeviceConfig.h`, which has real
-   `__global__` kernels and `<<<...>>>` launch syntax that only nvcc's
-   frontend parses.
-2. Every translation unit touching `Places.h`/`Agents.h` needs
+1. `mass_viz_cuda.cpp` is plain C++ - it includes no `mass_cuda_core` header
+   (see the note at the top of `mass_viz_cuda.h`) - so a plain `g++
+   -std=c++14 -c mass_viz_cuda.cpp -I../cuda` builds it: no nvcc, no
+   `mass_cuda_core` or Boost include paths.
+2. Every translation unit touching `Places.h`/`Agents.h` (your own `.cu`
+   files and `main.cu`, but not the adapter) needs
    `-DBOOST_LOG_DYN_LINK` and `mass_cuda_core`'s Boost include path, and
    your own `.cu` files need `-rdc=true` to match how `mass_cuda_core`
    itself was built.

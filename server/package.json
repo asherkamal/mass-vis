@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "description": "Unified live/replay viewer server for MASS CUDA, MASS C++, and MASS Java simulation output.",
   "main": "server.js",
+  "engines": {
+    "node": ">=22.12"
+  },
   "scripts": {
     "start": "node server.js"
   },

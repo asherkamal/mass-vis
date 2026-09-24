@@ -108,6 +108,12 @@ python visualize_plotly.py
 
 ## Track A — Graph mode: mass-viz vs. mass-graphosaurus (MEASURED)
 
+> These numbers were taken with the original graph renderer, which drew one
+> `THREE.Mesh` per node and per agent. The renderer has since been rewritten
+> around instanced meshes (one draw call for all nodes, one per agent shape),
+> so the architectural discussion below describes that earlier version; the
+> figures have not been re-measured.
+
 Both viewers were instrumented with a live FPS readout counting actual
 `renderer.render()` calls (top bar in mass-viz; a "📊 Benchmark" panel in
 graphosaurus's `viewer.html`) - local, clearly-commented, uncommitted
@@ -147,9 +153,8 @@ place - zero allocations per frame. That's a concrete, verifiable
 difference, not just "newer code is probably better."
 
 Both benchmark servers (mass-viz :8080, graphosaurus :8090) have been
-stopped now that benchmarking is done. The FPS-overlay patches remain in
-both codebases, clearly marked `BENCHMARK-ONLY` in comments - harmless to
-leave in, easy to revert if you'd rather they weren't there.
+stopped now that benchmarking is done. The FPS readout remains in mass-viz's
+top bar (`scene.js`) and, as a local patch, in graphosaurus.
 
 ## Overall verdict
 

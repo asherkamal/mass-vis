@@ -11,6 +11,9 @@ __device__ void Walker::callMethod(int functionId, void *arg) {
         case MOVE:
             move((unsigned int *)arg);
             break;
+        case SYNC:
+            sync();
+            break;
         default:
             break;
     }
@@ -43,14 +46,21 @@ __device__ void Walker::move(unsigned int *step) {
     int *neighbors = residePlace->getNeighbors();
 
     if ((int)dir < MAX_NEIGHBORS && neighbors[dir] >= 0) {
+        // Only a request: it takes effect at the next Agents::manageAll()
+        // (mass_cuda_core's manageAll runs terminate -> migrate -> spawn as
+        // separate dispatcher passes - see Agents.cu), and manageAll may
+        // decline it (e.g. an occupied destination). So PLACE_IDX is NOT
+        // staged here from the neighbor we asked for - that would record a
+        // move the library might never have made. sync() below stages it
+        // from where the agent actually is, after manageAll.
         migrate(neighborPtrs[dir]);
-        // migrate() only takes effect at the next Agents::manageAll() call
-        // (mass_cuda_core's Agents::manageAll runs terminate -> migrate ->
-        // spawn as separate dispatcher passes - see Agents.cu), so
-        // getPlace() here would still report the OLD place. Stage the
-        // attribute from the neighbor index we just requested instead of
-        // re-reading getPlace().
-        int *placeIdx = getAttribute<int>(PLACE_IDX, 1);
-        *placeIdx = neighbors[dir];
     }
+}
+
+// Run after Agents::manageAll(): getPlace() is now the agent's real place, so
+// the recorded position can never disagree with the simulation.
+__device__ void Walker::sync() {
+    Place *residePlace = getPlace();
+    int *placeIdx = getAttribute<int>(PLACE_IDX, 1);
+    *placeIdx = residePlace ? (int)residePlace->getIndex() : -1;
 }

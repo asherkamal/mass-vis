@@ -16,7 +16,7 @@ const AGENTS = Number(agentCountArg || 100);
 const STEPS = Number(stepsArg || 300);
 const runId = runIdArg || `graph-replay-${N}n-${AGENTS}a-${STEPS}s`;
 
-const RECORDINGS_DIR = path.join(__dirname, '..', 'server', 'recordings');
+const RECORDINGS_DIR = process.env.MASS_VIZ_RECORDINGS_DIR || path.join(__dirname, '..', 'server', 'recordings');
 const outFile = path.join(RECORDINGS_DIR, `${runId}.ndjson`);
 const RADIUS = Math.max(20, N * 0.08);
 

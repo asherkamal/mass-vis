@@ -87,6 +87,10 @@ int main() {
         massviz::MassVizCuda::instance().reportAgents(grid, placeIdx, walkerIds, walkers->getNumAgents());
         delete[] placeIdx;
         delete[] walkerIds;
+
+        // End of the initial state: without this marker these events would
+        // be folded into step 0's replay frame (see PROTOCOL.md).
+        massviz::MassVizCuda::instance().step(-1);
     }
 
     for (unsigned int step = 0; step < (unsigned int)NUM_STEPS; step++) {
@@ -95,6 +99,9 @@ int main() {
 
         walkers->callAll(Walker::MOVE, &step, sizeof(unsigned int));
         walkers->manageAll();
+        // Now that migrations have actually happened, stage each walker's
+        // real place for reporting (MOVE only requested the migration).
+        walkers->callAll(Walker::SYNC);
 
         double *temperatures = grid->downloadAttributes<double>(HeatCell::TEMPERATURE, 1);
         massviz::MassVizCuda::instance().reportPlaces(temperatures, (size_t)grid->getNumPlaces());

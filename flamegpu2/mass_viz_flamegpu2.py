@@ -67,13 +67,9 @@ variables and places it into the flat array explicitly, at the cost of a
 couple of extra typed getter calls per cell versus a raw buffer copy.
 
 Status: written against the API shape above, confirmed directly from
-FLAME GPU2's real headers and SWIG interface (not guessed, not from
-possibly-stale documentation prose) - but NOT run against a real pyflamegpu
-install or GPU, since neither was available in the environment that authored
-it (same caveat ../cuda/mass_viz_cuda.h carries for mass_cuda_core, and
-../README.md's own "What's verified vs. not" table). Please run this against
-a real pyflamegpu model and report back anything that doesn't behave as
-documented.
+FLAME GPU2's real headers and SWIG interface, and since run against a real
+pyflamegpu install on a real GPU - see README.md in this directory for what
+that verified and the Windows install steps it took.
 
 Usage
 -----
@@ -109,12 +105,40 @@ browser viewer's Replay mode.
 """
 
 import json
+import math
 import time
 import threading
 
 
 def _now_millis():
     return int(time.time() * 1000)
+
+
+def _json_safe(value):
+    """Recursively replaces non-finite floats (NaN, +/-Infinity) with None.
+
+    Python's json.dumps writes them as bare NaN/Infinity tokens by default,
+    which are not valid JSON: the server would drop the whole event, and a
+    recording containing one would fail to load in the viewer. PROTOCOL.md's
+    rule is `null` for any non-finite number (a diverged model is entirely
+    plausible), which the viewer treats as "no value" and skips.
+    """
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, dict):
+        return {k: _json_safe(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(v) for v in value]
+    return value
+
+
+def _dumps(event):
+    # Fast path first: the common case has no non-finite numbers, so don't
+    # pay to walk a whole grid of floats on every tick just to check.
+    try:
+        return json.dumps(event, separators=(",", ":"), allow_nan=False)
+    except ValueError:
+        return json.dumps(_json_safe(event), separators=(",", ":"), allow_nan=False)
 
 
 class MassVizWriter:
@@ -195,7 +219,7 @@ class MassVizWriter:
         with self._lock:
             if self._file is None:
                 return
-            self._file.write(json.dumps(event, separators=(",", ":")) + "\n")
+            self._file.write(_dumps(event) + "\n")
             self._file.flush()
 
 
@@ -320,8 +344,11 @@ class MassVizStepFunction:
         type and per-element API (AgentVector_Agent), so _pack_grid()/
         _collect_agents() work unchanged.
 
-        Deliberately does NOT emit a `step` marker - this is setup state
-        before step 0, not a completed tick (see ../PROTOCOL.md).
+        Ends with a `step` marker numbered -1 (see ../PROTOCOL.md): without
+        it these events would sit before the first real `step` and be folded
+        into step 0's replay frame, so seeking to the start would show the
+        state *after* step 0 and the true starting state would never be
+        visible.
 
             cells = pyflamegpu.AgentVector(cell_agent_desc, width * height)
             # ... populate cells ...
@@ -351,6 +378,7 @@ class MassVizStepFunction:
         self.writer.report_places(self._pack_grid(cell_population))
         if self.agent_agent_name is not None and agent_population is not None:
             self.writer.report_agents(self._collect_agents(agent_population))
+        self.writer.step(-1)
 
     def run(self, FLAMEGPU):
         cells = FLAMEGPU.agent(self.cell_agent_name).getPopulationData()

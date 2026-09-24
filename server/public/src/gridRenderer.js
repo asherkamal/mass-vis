@@ -16,7 +16,7 @@ export class GridRenderer {
     this.vizScene = vizScene;
     this.vizScene.useCamera('2d');
     this.dims = dims;
-    this.colorScale = new ColorScale(0, 1);
+    this.colorScale = new ColorScale();
     this.cellIndex = new Map(); // "x,y" -> instance id
 
     const [w, h] = this.dims;
@@ -123,10 +123,11 @@ export class GridRenderer {
     const pos = this._cellToWorld(at).add(new THREE.Vector3(0, AGENT_HEIGHT, 0));
     mesh.position.copy(pos);
     this.group.add(mesh);
-    this.agents.set(String(id), { mesh, from: pos.clone(), to: pos.clone(), t: 1 });
+    this.agents.set(String(id), { mesh, from: pos.clone(), to: pos.clone(), t: 1, duration: AGENT_MOVE_SECONDS });
   }
 
-  moveAgent(id, to, instant) {
+  // `speed` is the protocol's agent_move speed multiplier (>1 = faster).
+  moveAgent(id, to, instant, speed) {
     const agent = this.agents.get(String(id));
     if (!agent) return;
     const target = this._cellToWorld(to).add(new THREE.Vector3(0, AGENT_HEIGHT, 0));
@@ -140,6 +141,7 @@ export class GridRenderer {
     agent.from = agent.mesh.position.clone();
     agent.to = target;
     agent.t = 0;
+    agent.duration = AGENT_MOVE_SECONDS / (speed > 0 ? speed : 1);
   }
 
   removeAgent(id) {
@@ -154,7 +156,7 @@ export class GridRenderer {
   _animateAgents(dt) {
     for (const agent of this.agents.values()) {
       if (agent.t >= 1) continue;
-      agent.t = Math.min(1, agent.t + dt / AGENT_MOVE_SECONDS);
+      agent.t = Math.min(1, agent.t + dt / agent.duration);
       agent.mesh.position.lerpVectors(agent.from, agent.to, agent.t);
     }
   }
