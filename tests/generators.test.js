@@ -23,6 +23,42 @@ function run(file, args, env = {}) {
 
 const recording = async (server, runId) => parseNdjson((await getText(server, `/recordings/${runId}.ndjson`)).text);
 
+describe('gen-live-graph.js', () => {
+  let server;
+  let events;
+  const N = 200;
+  const A = 30;
+  before(async () => {
+    server = await startServer();
+    await run(script('gen-live-graph.js'), [`--nodes=${N}`, `--agents=${A}`, '--links=1-50', '--duration=1500', '--tick=40', '--run=lg', `--port=${server.port}`]);
+    events = await recording(server, 'lg');
+  });
+  after(() => server.cleanup());
+
+  test('sends plain vertices (no position/group/label), a symmetric graph, and moves along edges', () => {
+    assert.equal(events[0].type, 'init');
+    assert.equal(events[0].mode, 'graph');
+    const vertices = events.filter((e) => e.type === 'vertex');
+    assert.equal(vertices.length, N);
+    const adj = new Map(vertices.map((v) => [v.id, new Set(v.neighbors)]));
+    for (const v of vertices) {
+      assert.equal(v.position, undefined);
+      assert.equal(v.group, undefined);
+      assert.equal(v.label, undefined);
+      assert.ok(v.neighbors.length >= 1 && !adj.get(v.id).has(v.id));
+      for (const n of v.neighbors) assert.ok(adj.get(n).has(v.id), `edge ${v.id}-${n} is reciprocal`);
+    }
+    const pos = new Map(events.filter((e) => e.type === 'agent_spawn').map((s) => [s.id, s.at]));
+    assert.equal(pos.size, A);
+    const moves = events.filter((e) => e.type === 'agent_move');
+    assert.ok(moves.length > 0, 'agents moved');
+    for (const m of moves) {
+      assert.ok(adj.get(pos.get(m.id)).has(m.to), `move ${m.id} follows an edge`);
+      pos.set(m.id, m.to);
+    }
+  });
+});
+
 describe('gen-social-graph.js', () => {
   let server;
   let events;
@@ -30,7 +66,7 @@ describe('gen-social-graph.js', () => {
   const A = 40;
   before(async () => {
     server = await startServer();
-    await run(script('gen-social-graph.js'), [`--nodes=${N}`, `--agents=${A}`, '--duration=1500', '--tick=40', '--run=soc', `--port=${server.port}`]);
+    await run(script('gen-social-graph.js'), [`--nodes=${N}`, `--agents=${A}`, '--links=3', '--duration=1500', '--tick=40', '--run=soc', `--port=${server.port}`]);
     events = await recording(server, 'soc');
   });
   after(() => server.cleanup());

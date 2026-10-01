@@ -118,7 +118,7 @@ export class GridRenderer {
 
   spawnAgent(id, at, color) {
     const geometry = new THREE.SphereGeometry(CELL_SIZE * 0.28, 16, 12);
-    const material = new THREE.MeshLambertMaterial({ color: color ?? 0xffee55 });
+    const material = new THREE.MeshLambertMaterial({ color: color ?? 0xe040fb });
     const mesh = new THREE.Mesh(geometry, material);
     const pos = this._cellToWorld(at).add(new THREE.Vector3(0, AGENT_HEIGHT, 0));
     mesh.position.copy(pos);

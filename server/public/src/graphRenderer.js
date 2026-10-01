@@ -171,9 +171,12 @@ export class GraphRenderer {
     this.group.add(this.edgeLines);
     this.highlightLines = new THREE.LineSegments(
       new THREE.BufferGeometry(),
-      new THREE.LineBasicMaterial({ color: 0xffd166 })
+      // Drawn over everything: in dense clusters, other nodes' spheres would
+      // otherwise hide most of the selected node's edges.
+      new THREE.LineBasicMaterial({ color: 0xffd166, depthTest: false, depthWrite: false })
     );
     this.highlightLines.frustumCulled = false;
+    this.highlightLines.renderOrder = 1;
     this.group.add(this.highlightLines);
 
     // --- agents ---
@@ -345,6 +348,15 @@ export class GraphRenderer {
     if (this._edgesDirty) {
       this._rebuildEdges();
       this._edgesDirty = false;
+      // Edges or positions changed under a selection/hover: refresh it too.
+      if (this.selection && this.selection.kind === 'node') {
+        const adj = this.adj.get(this.selection.id) || EMPTY;
+        if (adj.size !== this._selAdj.size) {
+          this._selAdj = new Set(adj);
+          this._allNodesDirty = true;
+        }
+      }
+      if (this._focusNodeId() !== null) this._rebuildHighlight();
     }
 
     for (const pool of Object.values(this.agentPools)) pool.commit();

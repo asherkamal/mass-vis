@@ -14,16 +14,19 @@
 // `place_value` is its running visit count, so busy spots show up when the
 // viewer's color mode is set to "value".
 //
-// Usage: node gen-social-graph.js [--nodes=10000] [--agents=2000] [--links=3]
+// Usage: node gen-social-graph.js [--nodes=10000] [--agents=2000] [--links=1-50]
 //          [--communities=<N/250>] [--run=social] [--port=8080] [--tick=300]
 //          [--duration=0]
-// --duration=0 runs until Ctrl+C.
+// --links is a min-max range (or a single number); each new user picks its link
+// count uniformly from it. --duration=0 runs until Ctrl+C.
 const { parseArgs, postJson } = require('./lib');
 
 const args = parseArgs().flags;
 const N = Number(args.nodes || 10000);
 const A = Number(args.agents || 2000);
-const M = Number(args.links || 3);
+const linkRange = String(args.links || '1-10').split('-').map(Number);
+const M_MIN = linkRange[0];
+const M_MAX = linkRange.length > 1 ? linkRange[1] : M_MIN;
 const C = Math.max(1, Number(args.communities || Math.max(4, Math.round(N / 250))));
 const runId = args.run || 'social';
 const port = Number(args.port || 8080);
@@ -89,7 +92,7 @@ function buildGraph(comm) {
     const members = commMembers[c];
     const mine = commPool[c];
     if (i > 0) {
-      const want = Math.min(M, i);
+      const want = Math.min(M_MIN + Math.floor(Math.random() * (M_MAX - M_MIN + 1)), i);
       for (let k = 0; k < want; k++) {
         const cross = Math.random() < CROSS_LINK_PROB || (members.length === 0 && globalPool.length === 0);
         let target;
@@ -130,7 +133,7 @@ function layout(adj, comm) {
 }
 
 async function main() {
-  console.log(`building ${N} users in ${C} communities (~${M} links each), ${A} agents -> run "${runId}" on :${port}`);
+  console.log(`building ${N} users in ${C} communities (${M_MIN}-${M_MAX} links each), ${A} agents -> run "${runId}" on :${port}`);
   const comm = assignCommunities();
   const adj = buildGraph(comm);
   const positions = layout(adj, comm);

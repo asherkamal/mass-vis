@@ -38,7 +38,7 @@ with agent-migration animation.
 - **`benchmark/gen-social-graph.js`** - live generator for a large
   social-network-style graph (10,000 users, 2,000 walking agents by
   default); see "Large social-network graph" under Testing the viewer.
-- **`benchmark/gen-graph-load.js`, `gen-live-grid.js`, `gen-grid-recording.js`,
+- **`benchmark/gen-graph-load.js`, `gen-live-graph.js`, `gen-live-grid.js`, `gen-grid-recording.js`,
   `gen-graph-recording.js`** - the other load generators, described under
   Testing the viewer; **`benchmark/lib.js`** holds the argument parsing and
   HTTP helper they share, and **`benchmark/RESULTS.md`** the measured
@@ -83,7 +83,7 @@ Replay dropdown.
 ### Live mode
 
 Live mode means watching the data asit arrives, via `POST /event` 
-(`PROTOCOL.md`) or a WebSocket producer. Two generator scripts:
+(`PROTOCOL.md`) or a WebSocket producer. Three generator scripts:
 
 ```bash
 # Grid: continuously recomputes and posts a full WxH grid (a traveling-wave
@@ -94,6 +94,12 @@ node benchmark/gen-live-grid.js <width> <height> <durationMs> <intervalMs> [runI
 # Graph: builds a ring+chord graph of N nodes and M agents doing continuous
 # random-walk moves, for a fixed duration.
 node benchmark/gen-graph-load.js --nodes=1000 --agents=300 --duration=30000
+
+# Graph, plain: N vertices each linked to 1-50 uniformly random others, sent
+# with no positions/groups/labels (the viewer's default layout and colors),
+# plus agents random-walking along edges. Same flags as gen-social-graph.js
+# minus --communities; defaults 10,000 vertices / 2,000 agents, until Ctrl+C.
+node benchmark/gen-live-graph.js --nodes=1000 --agents=200 --links=1-50 --duration=60000
 ```
 
 
@@ -110,7 +116,7 @@ the agents and a `step -1` initial-state marker itself, so there is nothing
 to send by hand.
 
 ```bash
-# defaults: 10,000 users, 2,000 agents, ~3 links per new user, runs until Ctrl+C
+# defaults: 10,000 users, 2,000 agents, 1-50 links per new user, runs until Ctrl+C
 node benchmark/gen-social-graph.js
 # a smaller, quicker variant that stops on its own after 60 s
 node benchmark/gen-social-graph.js --nodes=1000 --agents=200 --duration=60000
@@ -120,7 +126,7 @@ node benchmark/gen-social-graph.js --nodes=1000 --agents=200 --duration=60000
 |---|---|---|
 | `--nodes` | 10000 | number of users (vertices) |
 | `--agents` | 2000 | number of walking agents |
-| `--links` | 3 | links each new user makes |
+| `--links` | 1-50 | range each new user's link count is drawn from (a single number fixes it) |
 | `--communities` | nodes / 250 (min 4) | number of communities |
 | `--tick` | 300 | ms between agent moves |
 | `--duration` | 0 | ms to run; `0` = until Ctrl+C |
